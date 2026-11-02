@@ -24,9 +24,9 @@ jobs:
           changed=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || git diff --name-only "origin/${{ github.base_ref }}" HEAD)
           echo "$changed"
           if echo "$changed" | grep -Ev '^mods/' ; then
-            echo "::error::Mod pull requests may only change files under mods/. Changes to the SDK, rules or checks are made by the owner
+            echo "::error::Mod pull requests may only change files under mods/. Changes to the SDK, rules or checks are made by the owner."
+            exit 1
           fi
-
       - name: Install NDK
         id: ndk
         uses: nttld/setup-ndk@v1
@@ -37,9 +37,8 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y ninja-build
           ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }} ./build.sh
-
       - name: Upload mods
         uses: actions/upload-artifact@v4
         with:
-          name: PenisClientBeta
+          name: yeeps-mods
           path: out/*.so
