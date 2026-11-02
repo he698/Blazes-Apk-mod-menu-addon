@@ -462,12 +462,12 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Jumping Jacks", "Arms go up and down at your sides. Hold left trigger."},
     {"Spaz", "Hands shake all over the place. Hold left trigger."},
     {"Beyblade", "Hands spin fast around your waist. Hold left trigger."},
-    {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Change Pointer Position", "Moves the ball on your finger."},
     {"Iron Man Speed", "Changes how strong Iron Man is."},
     {"Right Hand Menu", "Hold B, menu on your right hand."},
     {"Notifications", "Messages when you switch something."},
     {"Turn Everything Off", "Switches every mod off."},
+    {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
     {"NOVA X", "Menu credits."},
     {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
@@ -1181,32 +1181,44 @@ static void PauseTrackers(bool pause) {
             }
 }
 
+// Long Arms: every frame the hand's offset from its shoulder is scaled by 1.5. The
+// controller trackers write the real hand position each frame, so the scale always starts
+// from the real position. If a hand is still exactly where Long Arms put it last frame
+// (the trackers did not move it), it is left alone, so the arms can never grow every frame.
+static Vector3 g_laLeft, g_laRight;
+static bool g_laHave = false;
+static bool SamePos(Vector3 a, Vector3 b) {
+    Vector3 d = a - b;
+    return d.x * d.x + d.y * d.y + d.z * d.z < 1e-8f;
+}
+static void LongArmsTick(Il2CppObject *head, Il2CppObject *lh, Il2CppObject *rh) {
+    const float kScale = 1.5f;
+    Vector3 lp = G.trGetPosition[lh](), rp = G.trGetPosition[rh]();
+    if (g_laHave && SamePos(lp, g_laLeft) && SamePos(rp, g_laRight)) return;   // not refreshed: don't scale again
+    Vector3 up(0, 1, 0), f = Flat(G.trGetForward[head]()), r = Cross(up, f);
+    Vector3 shoulder = G.trGetPosition[head]() + up * -0.25f;
+    Vector3 ls = shoulder - r * 0.18f, rs = shoulder + r * 0.18f;
+    Vector3 nl = ls + (lp - ls) * kScale, nr = rs + (rp - rs) * kScale;
+    G.trSetPosition[lh](nl);
+    G.trSetPosition[rh](nr);
+    g_laLeft = nl;
+    g_laRight = nr;
+    g_laHave = true;
+}
+
 static void DanceTick(const Buttons &in, float dt) {
     Il2CppObject *head = g_head.get(), *lh = g_leftHand.get(), *rh = g_rightHand.get();
-    bool danceWant = g_dance >= 0 && in.ltrig && head && lh && rh;
-    // Only dances pause controller trackers. Long Arms must keep tracking live input.
-    bool want = danceWant;
+    bool want = g_dance >= 0 && in.ltrig && head && lh && rh;
     if (want != g_dancing) {
         PauseTrackers(want);
         g_dancing = want;
+        g_laHave = false;
         if (want) ym::log("starter-menu: dancing, paused %d trackers", g_pausedN);
     }
     if (!want) {
-        if (f_longArms && head && lh && rh) {
-            Vector3 hp = G.trGetPosition[head]();
-            Vector3 up(0, 1, 0);
-            Vector3 f = Flat(G.trGetForward[head]());
-            Vector3 right = Cross(up, f);
-            Vector3 shoulder = hp + up * -0.25f;
-            // Scale each tracked hand's offset from its shoulder, every frame.
-            // Trackers remain enabled, so movement continues to follow the controllers.
-            Vector3 leftShoulder = shoulder - right * 0.18f;
-            Vector3 rightShoulder = shoulder + right * 0.18f;
-            Vector3 leftOffset = G.trGetPosition[lh]() - leftShoulder;
-            Vector3 rightOffset = G.trGetPosition[rh]() - rightShoulder;
-            G.trSetPosition[lh](leftShoulder + leftOffset * 1.5f);
-            G.trSetPosition[rh](rightShoulder + rightOffset * 1.5f);
-        }
+        // Trackers stay on, so your hands keep following your controllers.
+        if (f_longArms && head && lh && rh) LongArmsTick(head, lh, rh);
+        else g_laHave = false;
         return;
     }
     Vector3 hp = G.trGetPosition[head](), f = Flat(G.trGetForward[head]()), up(0, 1, 0);
@@ -1259,18 +1271,14 @@ static void DanceTick(const Buttons &in, float dt) {
         float len = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
         return len > 0.7f ? sh + d * (0.7f / len) : hand;
     };
-    if (danceWant) {
-        R = reach(R, shoulder + r * 0.18f);
-        L = reach(L, shoulder - r * 0.18f);
-    }
-    float k = danceWant && g_dance == 6 ? 1.0f : fminf(1.0f, dt * 14.0f);     // Spaz stays twitchy
+    R = reach(R, shoulder + r * 0.18f);
+    L = reach(L, shoulder - r * 0.18f);
+    float k = g_dance == 6 ? 1.0f : fminf(1.0f, dt * 14.0f);     // Spaz stays twitchy
     G.trSetPosition[lh](G.trGetPosition[lh]() + (L - G.trGetPosition[lh]()) * k);
     G.trSetPosition[rh](G.trGetPosition[rh]() + (R - G.trGetPosition[rh]()) * k);
-    if (danceWant) {
-        Quaternion look = Quaternion::LookRotation(f, up);
-        G.trSetRotation[lh](look);
-        G.trSetRotation[rh](look);
-    }
+    Quaternion look = Quaternion::LookRotation(f, up);
+    G.trSetRotation[lh](look);
+    G.trSetRotation[rh](look);
 }
 
 // ---- items (everyone sees these) ------------------------------------------------
@@ -1435,6 +1443,7 @@ static void OnRoomChange() {
     for (Ref *r : {&g_menu, &g_pointer, &g_notifyGo, &g_leftPlatform, &g_rightPlatform, &g_gunBall, &g_gunLineGo}) Kill(*r);
     PauseTrackers(false);
     g_dancing = false;
+    g_laHave = false;
     g_gunLine.clear();
     if (g_noclipOn && g_player.get()) {           // leaving the room mid-noclip: put things back
         Buttons none;                             // trigger "released"
