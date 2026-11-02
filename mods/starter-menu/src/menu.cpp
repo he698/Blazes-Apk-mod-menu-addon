@@ -351,8 +351,8 @@ static void ArmDupe9();
 static void ArmDupe27();
 static bool LeftHandItem();
 
-enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, NCAT };
-static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods"};
+enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, NCAT };
+static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits"};
 enum Kind { OPEN, TOGGLE, ACTION };
 struct Item {
     Cat cat;
@@ -369,6 +369,7 @@ static Item g_items[] = {
     {MAIN, "Rig Mods", OPEN, RIG},
     {MAIN, "Items", OPEN, ITEMS},
     {MAIN, "Enabled Mods", OPEN, ENABLED},
+    {MAIN, "Credits", OPEN, CREDITS},
 
     {MOVEMENT, "Exit Movement Mods", OPEN, MAIN},
     {MOVEMENT, "Platforms", TOGGLE, MAIN, &f_platforms},
@@ -413,6 +414,11 @@ static Item g_items[] = {
     {SETTINGS, "Show Clock", TOGGLE, MAIN, &f_clock},
     {SETTINGS, "Notifications", TOGGLE, MAIN, &f_notify},
     {SETTINGS, "Turn Everything Off", ACTION, MAIN, nullptr, AllOff},
+
+    {CREDITS, "Exit Credits", OPEN, MAIN},
+    {CREDITS, "NOVA X", ACTION},
+    {CREDITS, "Creator: @RandomGuy", ACTION},
+    {CREDITS, "Contributors: Community", ACTION},
 };
 static constexpr int kItems = sizeof(g_items) / sizeof(g_items[0]);
 static Item g_returnItem = {ENABLED, "Exit Enabled Mods", OPEN, MAIN};
@@ -459,8 +465,10 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Right Hand Menu", "Hold B, menu on your right hand."},
     {"Notifications", "Messages when you switch something."},
     {"Turn Everything Off", "Switches every mod off."},
-    {"Credits", "Who made this menu."},
-    {"@RandomGuy", "The menu is made by @RandomGuy."},
+    {"Credits", "Shows the people behind Nova X."},
+    {"NOVA X", "Menu credits."},
+    {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
+    {"Contributors: Community", "Thanks to the community for its support."},
 };
 static const char *TipFor(const char *label) {
     if (strncmp(label, "Exit ", 5) == 0) return "Returns you back to the main category.";
