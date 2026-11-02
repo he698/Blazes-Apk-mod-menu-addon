@@ -1,4 +1,4 @@
-// ClientDaBell: a hand menu built from the starter menu (ii's Stupid Menu layout).
+// NovaX: a hand menu built from the starter menu (ii's Stupid Menu layout).
 // The layout idea comes from ii's menu; the code is new.
 //   Hold Y (left hand)      -> menu on your left hand, tipped like ii's; turn your palm to you
 //                              (B and the right hand with "Right Hand Menu")
