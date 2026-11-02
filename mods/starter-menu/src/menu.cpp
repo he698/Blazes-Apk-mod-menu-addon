@@ -1516,9 +1516,9 @@ static std::string g_soundDir;
 static Ref g_audioGo, g_audioSrc, g_clip;
 
 static std::string SoundDir() {
-    // The mods folder: the player drops their .wav files next to the mod's .so file.
+    // The Sounds folder inside the mods folder: the player drops their .wav files there.
     if (g_soundDir.empty()) {
-        g_soundDir = "/sdcard/Android/data/com.TrassGames.Yeeps/files/mods";
+        g_soundDir = "/sdcard/Android/data/com.TrassGames.Yeeps/files/mods/Sounds";
         ym::log("starter-menu: put .wav files in %s", g_soundDir.c_str());
     }
     return g_soundDir;
@@ -1630,7 +1630,7 @@ static void ScanSounds() {
     g_soundItems.reserve(g_soundFiles.size());           // labels point into g_soundFiles: no more changes after this
     for (int i = 0; i < (int)g_soundFiles.size(); i++)
         g_soundItems.push_back({SOUNDS, g_soundFiles[i].c_str(), ACTION, MAIN, nullptr, nullptr, PlaySoundIdx, i});
-    if (g_soundFiles.empty()) Notify("No .wav files in the mods folder yet");
+    if (g_soundFiles.empty()) Notify("No .wav files in the Sounds folder yet");
     else Notify("%d sounds found", (int)g_soundFiles.size());
     g_dirty = true;
 }
