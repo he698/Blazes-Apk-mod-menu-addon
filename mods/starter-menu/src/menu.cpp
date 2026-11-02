@@ -20,7 +20,7 @@ using namespace BNM;
 using namespace BNM::Structures::Unity;
 using BNM::IL2CPP::Il2CppObject;
 
-YEEPS_MOD("Penis Menu V1")
+YEEPS_MOD("Nova X")
 
 // ---- small helpers ---------------------------------------------------------
 
