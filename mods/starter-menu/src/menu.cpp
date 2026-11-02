@@ -350,10 +350,11 @@ static void ApplyGravity();
 static void DancePicked();
 static void ArmDupe9();
 static void ArmDupe27();
+static void FindSoundMessages();
 static bool LeftHandItem();
 
-enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, NCAT };
-static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits"};
+enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, NCAT };
+static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits", "Soundboard"};
 enum Kind { OPEN, TOGGLE, ACTION };
 struct Item {
     Cat cat;
@@ -369,6 +370,7 @@ static Item g_items[] = {
     {MAIN, "Movement Mods", OPEN, MOVEMENT},
     {MAIN, "Rig Mods", OPEN, RIG},
     {MAIN, "Items", OPEN, ITEMS},
+    {MAIN, "Soundboard", OPEN, SOUNDS},
     {MAIN, "Enabled Mods", OPEN, ENABLED},
     {MAIN, "Credits", OPEN, CREDITS},
 
@@ -404,6 +406,9 @@ static Item g_items[] = {
     {ITEMS, "Duplicate Items (3x3)", ACTION, MAIN, nullptr, ArmDupe9},
     {ITEMS, "Duplicate Items (3x3x3)", ACTION, MAIN, nullptr, ArmDupe27},
     {ITEMS, "Spawn On Hand", TOGGLE, MAIN, &f_spawnOnHand},
+
+    {SOUNDS, "Exit Soundboard", OPEN, MAIN},
+    {SOUNDS, "Find Sound Messages", ACTION, MAIN, nullptr, FindSoundMessages},
 
     {SETTINGS, "Exit Settings", OPEN, MAIN},
     {SETTINGS, "Change Pointer Position", ACTION, MAIN, nullptr, NextPointer},
@@ -469,6 +474,8 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Turn Everything Off", "Switches every mod off."},
     {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
+    {"Soundboard", "Sounds everyone in the room hears."},
+    {"Find Sound Messages", "Writes the game's sound messages to the log."},
     {"NOVA X", "Menu credits."},
     {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
     {"Contributors: Community", "Thanks to the community for its support."},
@@ -1432,6 +1439,40 @@ static void SpawnOnHandTick(const Buttons &in) {
     if (!LeftHandItem()) return;
     g_nextItem = g_time + 0.3;
     g_itemQueue.push_back({G.trGetPosition[hand]() + G.trGetForward[hand]() * 0.1f, Vector3(0, 0, 0)});
+}
+
+// ---- soundboard ------------------------------------------------------------------
+// A room-wide sound has to go through a message the game itself sends. This looks for
+// those messages in the game's own classes and writes them to the log, so the real one
+// can be wired in instead of guessed. Nothing is sent from here.
+static bool HasWord(const char *name, const char *word) {
+    auto low = [](char c) { return (char)(c >= 'A' && c <= 'Z' ? c + 32 : c); };
+    for (int i = 0; name[i]; i++) {
+        int j = 0;
+        while (word[j] && name[i + j] && low(name[i + j]) == word[j]) j++;
+        if (!word[j]) return true;
+    }
+    return false;
+}
+static void FindSoundMessages() {
+    static const char *kWords[] = {"sound", "audio", "sfx", "play", "emote", "voice"};
+    int found = 0;
+    for (const char *cn : {"NetworkMessenger", "MasterPlayer", "Item"}) {
+        Class c("", cn, Image("Assembly-CSharp.dll"));
+        if (!c.IsValid()) continue;
+        for (auto &m : c.GetMethods(false)) {
+            auto *mi = m.GetInfo();
+            if (!mi || !mi->name) continue;
+            bool hit = false;
+            for (const char *w : kWords) if (HasWord(mi->name, w)) hit = true;
+            if (!hit || found >= 60) continue;
+            std::string sig;
+            for (int i = 0; i < mi->parameters_count; i++) sig += (i ? "," : "") + TypeName(mi->parameters[i]);
+            ym::log("starter-menu: sound? %s.%s(%s)", cn, mi->name, sig.c_str());
+            found++;
+        }
+    }
+    Notify("%d sound messages in the log", found);
 }
 
 // ---- callbacks ---------------------------------------------------------------
