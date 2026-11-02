@@ -25,7 +25,7 @@ using namespace BNM::Structures::Unity;
 using BNM::IL2CPP::Il2CppObject;
 
 YEEPS_MOD("Nova X")
-#define CDB_VERSION "v0.0.1"
+#define NX_VERSION "v0.0.1"
 
 // ---- small helpers ---------------------------------------------------------
 
