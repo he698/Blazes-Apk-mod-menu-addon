@@ -476,9 +476,9 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Credits", "Shows the people behind Nova X."},
     {"Soundboard", "Sounds everyone in the room hears."},
     {"Find Sound Messages", "Writes the game's sound messages to the log."},
-    {"NOVA X", "Menu credits."},
-    {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
-    {"Contributors: Community", "Thanks to the community for its support."},
+    {"Nova2XP", "Cool Person Who Asked Me To Make This Menu :)"},
+    {"@RandomGuy", "The menu is made by @RandomGuy."},
+    {"To You", "Thanks to the community for its support."},
 };
 static const char *TipFor(const char *label) {
     if (strncmp(label, "Exit ", 5) == 0) return "Returns you back to the main category.";
