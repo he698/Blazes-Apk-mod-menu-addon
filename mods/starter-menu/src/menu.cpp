@@ -24,8 +24,8 @@ using namespace BNM;
 using namespace BNM::Structures::Unity;
 using BNM::IL2CPP::Il2CppObject;
 
-YEEPS_MOD("NovaX")
-#define NX_VERSION "0.0.1"
+YEEPS_MOD("Penis Client")
+#define PC_VERSION "0.0.1"
 
 // ---- small helpers ---------------------------------------------------------
 
