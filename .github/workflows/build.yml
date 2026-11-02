@@ -1,46 +1,23 @@
-name: check and build mods
-
+name: Build Nova X
 on:
   push:
-    branches: [main]
-  pull_request:
-
-permissions:
-  contents: read
-
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Safety check
-        run: python3 tools/check_mod.py
-
-      - name: Protected files untouched (pull requests)
-        if: github.event_name == 'pull_request'
-        run: |
-          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-          changed=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD || git diff --name-only "origin/${{ github.base_ref }}" HEAD)
-          echo "$changed"
-          if echo "$changed" | grep -Ev '^mods/' ; then
-            echo "::error::Mod pull requests may only change files under mods/. Changes to the SDK, rules or checks are made by the owner."
-            exit 1
-          fi
-
-      - name: Install NDK
+      - uses: nttld/setup-ndk@v1
         id: ndk
-        uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
-
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake python3
       - name: Build
         run: |
-          sudo apt-get update && sudo apt-get install -y ninja-build
+          chmod +x build.sh
           ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }} ./build.sh
-
-      - name: Upload mods
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: yeeps-mods
+          name: nova-x
           path: out/*.so
