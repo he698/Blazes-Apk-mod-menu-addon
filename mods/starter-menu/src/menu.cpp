@@ -1459,6 +1459,6 @@ static void OnUpdate(float dt) {
 YM_EXPORT int YeepsMod_Init(const YeepsModApi *api) {
     if (!ym::init(api)) return -1;
     ym::onUpdate(OnUpdate);
-    ym::log("Blaze Menu loaded on %s (%s)", api->gameVersion, api->buildId);
+    ym::log("Nova X loaded on %s (%s)", api->gameVersion, api->buildId);
     return 0;
 }
