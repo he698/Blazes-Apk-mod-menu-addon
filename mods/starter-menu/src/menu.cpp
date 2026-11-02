@@ -13,6 +13,11 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <algorithm>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <strings.h>
 #include <string>
 #include <vector>
 
@@ -103,6 +108,11 @@ static struct {
     Method<bool> colliderIsTrigger, behaviourGetEnabledCollider;
     Method<void> ignoreLayers;            // a LayerMask: which layers your hands can climb on
     Method<void> goSetLayer;
+    Method<Il2CppObject *> clipCreate;
+    Method<bool> clipSetData;
+    Method<void> srcSetClip, srcSetVolume, srcSetSpatial, srcPlay, srcStop;
+    BNM::MonoType *tAudioSource = nullptr;
+    BNM::IL2CPP::Il2CppClass *floatClass = nullptr;
     BNM::MonoType *tRigidbody = nullptr, *tCollider = nullptr, *tCanvas = nullptr, *tText = nullptr,
                   *tFont = nullptr, *tRenderer = nullptr, *tMeshCollider = nullptr, *tLine = nullptr;
     Ref shader, font, usagePrimary, usageSecondary, usageGrip, usageTrigger;
@@ -231,6 +241,19 @@ static bool Lookups() {
         ym::log("starter-menu: items rpc=%d pv=%d item=%d box=%d", G.rpcCreateItem != nullptr, G.pvRpc.IsValid(),
                 G.itemKey.IsValid(), G.arrayNew && G.valueBox);
     }
+    {   // audio, for the soundboard
+        Class clip("UnityEngine", "AudioClip"), src("UnityEngine", "AudioSource");
+        G.clipCreate = Overload(clip, "Create", {"System.String", "System.Int32", "System.Int32", "System.Int32", "System.Boolean"});
+        G.clipSetData = Overload(clip, "SetData", {"System.Single[]", "System.Int32"});
+        G.srcSetClip = src.GetMethod("set_clip", 1);
+        G.srcSetVolume = src.GetMethod("set_volume", 1);
+        G.srcSetSpatial = src.GetMethod("set_spatialBlend", 1);
+        G.srcPlay = src.GetMethod("Play", 0);
+        G.srcStop = src.GetMethod("Stop", 0);
+        G.tAudioSource = src.IsValid() ? src.GetMonoType() : nullptr;
+        G.floatClass = Class("System", "Single").GetClass();
+        ym::log("starter-menu: audio create=%d setdata=%d play=%d", G.clipCreate.IsValid(), G.clipSetData.IsValid(), G.srcPlay.IsValid());
+    }
     Class behaviour("UnityEngine", "Behaviour");
     G.behaviourGetEnabled = behaviour.GetMethod("get_enabled", 0);
     G.behaviourSetEnabled = behaviour.GetMethod("set_enabled", 1);
@@ -351,6 +374,8 @@ static void DancePicked();
 static void ArmDupe9();
 static void ArmDupe27();
 static void FindSoundMessages();
+static void ScanSounds();
+static void StopSound();
 static bool LeftHandItem();
 
 enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, NCAT };
@@ -363,6 +388,8 @@ struct Item {
     Cat target = MAIN;            // OPEN: the page it opens
     bool *flag = nullptr;         // TOGGLE: the switch
     void (*fn)() = nullptr;       // ACTION, or called after a TOGGLE changes
+    void (*fnArg)(int) = nullptr; // ACTION with a number (a soundboard sound)
+    int arg = 0;
 };
 // The owner's layout (2026-10-31). Keep this order.
 static Item g_items[] = {
@@ -408,6 +435,8 @@ static Item g_items[] = {
     {ITEMS, "Spawn On Hand", TOGGLE, MAIN, &f_spawnOnHand},
 
     {SOUNDS, "Exit Soundboard", OPEN, MAIN},
+    {SOUNDS, "Refresh Sounds", ACTION, MAIN, nullptr, ScanSounds},
+    {SOUNDS, "Stop Sound", ACTION, MAIN, nullptr, StopSound},
     {SOUNDS, "Find Sound Messages", ACTION, MAIN, nullptr, FindSoundMessages},
 
     {SETTINGS, "Exit Settings", OPEN, MAIN},
@@ -429,6 +458,7 @@ static Item g_items[] = {
 };
 static constexpr int kItems = sizeof(g_items) / sizeof(g_items[0]);
 static Item g_returnItem = {ENABLED, "Exit Enabled Mods", OPEN, MAIN};
+static std::vector<Item> g_soundItems;          // one button per imported .wav
 
 // Tooltips, shown under the menu while your finger is on a button (like ii's).
 static const struct { const char *label, *tip; } kTips[] = {
@@ -474,11 +504,13 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Turn Everything Off", "Switches every mod off."},
     {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
-    {"Soundboard", "Sounds everyone in the room hears."},
+    {"Soundboard", "Your imported .wav sounds. Add files, then Refresh Sounds."},
     {"Find Sound Messages", "Writes the game's sound messages to the log."},
-    {"Nova2XP", "Cool Person Who Asked Me To Make This Menu :)"},
-    {"@RandomGuy", "The menu is made by @RandomGuy."},
-    {"To You", "Thanks to the community for its support."},
+    {"Refresh Sounds", "Looks for .wav files again."},
+    {"Stop Sound", "Stops the sound that is playing."},
+    {"NOVA X", "Menu credits."},
+    {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
+    {"Contributors: Community", "Thanks to the community for its support."},
 };
 static const char *TipFor(const char *label) {
     if (strncmp(label, "Exit ", 5) == 0) return "Returns you back to the main category.";
@@ -531,6 +563,7 @@ static void BuildView() {
         for (auto &it : g_items) if (it.kind == TOGGLE && *it.flag && it.flag != &f_notify) g_view.push_back(&it);
     } else {
         for (auto &it : g_items) if (it.cat == g_cat) g_view.push_back(&it);
+        if (g_cat == SOUNDS) for (auto &it : g_soundItems) g_view.push_back(&it);
     }
     if (g_page >= PageCount()) g_page = 0;
 }
@@ -771,6 +804,7 @@ static void Press(Item *it) {
     case OPEN:
         g_cat = it->target;
         g_page = 0;
+        if (it->target == SOUNDS) ScanSounds();
         break;
     case TOGGLE:
         *it->flag = !*it->flag;
@@ -779,6 +813,7 @@ static void Press(Item *it) {
         break;
     case ACTION:
         if (it->fn) it->fn();
+        if (it->fnArg) it->fnArg(it->arg);
         break;
     }
     g_dirty = true;
@@ -898,6 +933,7 @@ static void AllOff() {
     g_dance = -1;
     g_dupeArmed = 0;
     g_itemQueue.clear();
+    StopSound();
     PointerToHand();
     Notify("Everything off");
 }
@@ -1475,13 +1511,145 @@ static void FindSoundMessages() {
     Notify("%d sound messages in the log", found);
 }
 
+// Import: put .wav files (16-bit PCM, 8-bit or 32-bit float; mono or stereo) in the
+// folder shown in the log, then open Soundboard or press Refresh Sounds. Each file becomes
+// a button. A sound plays on your own device (2D, full volume).
+static std::vector<std::string> g_soundFiles;
+static std::string g_soundDir;
+static Ref g_audioGo, g_audioSrc, g_clip;
+
+static std::string SoundDir() {
+    if (!g_soundDir.empty()) return g_soundDir;
+    char pkg[256] = {};
+    if (FILE *f = fopen("/proc/self/cmdline", "rb")) {          // the game's package name
+        size_t n = fread(pkg, 1, sizeof pkg - 1, f);
+        pkg[n] = 0;
+        fclose(f);
+    }
+    std::string base = std::string("/sdcard/Android/data/") + pkg + "/files";
+    for (const char *sub : {"", "/NovaX", "/NovaX/Sounds"})      // make the folders if they're missing
+        mkdir((base + sub).c_str(), 0777);
+    g_soundDir = base + "/NovaX/Sounds";
+    ym::log("starter-menu: put .wav files in %s", g_soundDir.c_str());
+    return g_soundDir;
+}
+
+static bool LoadWav(const std::string &path, std::vector<float> &out, int &ch, int &rate) {
+    FILE *f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size < 44 || size > 8 * 1024 * 1024) { fclose(f); return false; }
+    std::vector<uint8_t> d((size_t)size);
+    size_t got = fread(d.data(), 1, d.size(), f);
+    fclose(f);
+    if (got != d.size() || memcmp(d.data(), "RIFF", 4) || memcmp(d.data() + 8, "WAVE", 4)) return false;
+    auto u16 = [&](size_t o) { return (int)(d[o] | (d[o + 1] << 8)); };
+    auto u32 = [&](size_t o) { return (size_t)(d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | ((size_t)d[o + 3] << 24)); };
+    size_t pos = 12, dpos = 0, dlen = 0;
+    int fmt = 0, bits = 0;
+    bool haveFmt = false, haveData = false;
+    ch = 0; rate = 0;
+    while (pos + 8 <= d.size()) {
+        size_t len = u32(pos + 4), body = pos + 8;
+        if (!memcmp(&d[pos], "fmt ", 4) && len >= 16 && body + 16 <= d.size()) {
+            fmt = u16(body); ch = u16(body + 2); rate = (int)u32(body + 4); bits = u16(body + 14);
+            haveFmt = true;
+        } else if (!memcmp(&d[pos], "data", 4)) {
+            dpos = body;
+            dlen = std::min(len, d.size() - body);
+            haveData = true;
+            break;
+        }
+        pos = body + len + (len & 1);
+    }
+    if (!haveFmt || !haveData || ch < 1 || ch > 2 || rate < 8000 || rate > 96000) return false;
+    if (fmt == 0xFFFE) fmt = bits == 32 ? 3 : 1;                 // extensible: guess from the bit depth
+    size_t bytes = bits / 8;
+    if (!((fmt == 1 && (bits == 16 || bits == 8)) || (fmt == 3 && bits == 32))) return false;
+    size_t count = dlen / bytes;
+    count -= count % ch;
+    if (count == 0) return false;
+    out.resize(count);
+    const uint8_t *p = d.data() + dpos;
+    for (size_t i = 0; i < count; i++) {
+        if (fmt == 3) { float v; memcpy(&v, p + i * 4, 4); out[i] = v < -1 ? -1 : v > 1 ? 1 : v; }
+        else if (bits == 16) out[i] = (int16_t)(p[i * 2] | (p[i * 2 + 1] << 8)) / 32768.0f;
+        else out[i] = (p[i] - 128) / 128.0f;
+    }
+    return true;
+}
+
+static void StopSound() {
+    if (Alive(g_audioSrc.get()) && G.srcStop.IsValid()) G.srcStop[g_audioSrc.get()]();
+}
+
+static void PlaySoundIdx(int idx) {
+    if (idx < 0 || idx >= (int)g_soundFiles.size()) return;
+    if (!G.clipCreate.IsValid() || !G.clipSetData.IsValid() || !G.srcPlay.IsValid() || !G.tAudioSource || !G.floatClass ||
+        !G.arrayNew) { Notify("Audio isn't available in this game"); return; }
+    std::vector<float> samples;
+    int ch = 0, rate = 0;
+    if (!LoadWav(SoundDir() + "/" + g_soundFiles[idx], samples, ch, rate)) {
+        Notify("Can't read that .wav (16-bit PCM, under 8 MB)");
+        return;
+    }
+    if (!Alive(g_audioSrc.get())) {                      // one audio source, made once per room
+        Il2CppObject *go = Class("UnityEngine", "GameObject").CreateNewObjectParameters(CreateMonoString("NovaXAudio"));
+        Il2CppObject *src = go && G.tAudioSource ? G.goAddComponent[go](G.tAudioSource) : nullptr;
+        if (!src) { Notify("Couldn't make an audio source"); return; }
+        if (g_head.get()) G.trSetParent[Tr(go)](g_head.get(), false);
+        g_audioGo.set(go);
+        g_audioSrc.set(src);
+    }
+    Il2CppObject *src = g_audioSrc.get();
+    G.srcStop[src]();
+    Kill(g_clip);                                        // free the previous sound
+    int frames = (int)(samples.size() / ch);
+    Il2CppObject *clip = G.clipCreate(CreateMonoString("NovaXSound"), frames, ch, rate, false);
+    if (!clip) { Notify("Couldn't make the sound"); return; }
+    auto *arr = (Il2CppObject *)G.arrayNew(G.floatClass, samples.size());
+    if (!arr) return;
+    memcpy((uint8_t *)arr + 0x20, samples.data(), samples.size() * sizeof(float));
+    G.clipSetData[clip](arr, 0);
+    g_clip.set(clip);
+    G.srcSetClip[src](clip);
+    if (G.srcSetVolume.IsValid()) G.srcSetVolume[src](1.0f);
+    if (G.srcSetSpatial.IsValid()) G.srcSetSpatial[src](0.0f);     // 2D: same volume wherever you are
+    G.srcPlay[src]();
+    Notify("Playing %s", g_soundFiles[idx].c_str());
+}
+
+static void ScanSounds() {
+    g_soundFiles.clear();
+    g_soundItems.clear();
+    std::string dir = SoundDir();
+    if (DIR *d = opendir(dir.c_str())) {
+        while (dirent *e = readdir(d)) {
+            std::string n = e->d_name;
+            if (n.size() > 4 && strcasecmp(n.c_str() + n.size() - 4, ".wav") == 0 && g_soundFiles.size() < 64)
+                g_soundFiles.push_back(n);
+        }
+        closedir(d);
+    }
+    std::sort(g_soundFiles.begin(), g_soundFiles.end());
+    g_soundItems.reserve(g_soundFiles.size());           // labels point into g_soundFiles: no more changes after this
+    for (int i = 0; i < (int)g_soundFiles.size(); i++)
+        g_soundItems.push_back({SOUNDS, g_soundFiles[i].c_str(), ACTION, MAIN, nullptr, nullptr, PlaySoundIdx, i});
+    if (g_soundFiles.empty()) Notify("No .wav files yet. Folder is in the log.");
+    else Notify("%d sounds found", (int)g_soundFiles.size());
+    g_dirty = true;
+}
+
 // ---- callbacks ---------------------------------------------------------------
 
 static void OnRoomChange() {
     // The old room's objects are gone (or about to be): forget them, build again.
     for (int r = 0; r < kRows; r++) { g_rowCube[r].clear(); g_rowLabel[r].clear(); g_rowText[r].clear(); }
     for (Ref *r : {&g_board, &g_bg, &g_outline, &g_title, &g_titleBar, &g_prev, &g_next, &g_notifyText, &g_tipText}) r->clear();
-    for (Ref *r : {&g_menu, &g_pointer, &g_notifyGo, &g_leftPlatform, &g_rightPlatform, &g_gunBall, &g_gunLineGo}) Kill(*r);
+    for (Ref *r : {&g_menu, &g_pointer, &g_notifyGo, &g_leftPlatform, &g_rightPlatform, &g_gunBall, &g_gunLineGo, &g_audioGo, &g_clip}) Kill(*r);
+    g_audioSrc.clear();
     PauseTrackers(false);
     g_dancing = false;
     g_laHave = false;
