@@ -15,8 +15,6 @@
 #include <ctime>
 #include <algorithm>
 #include <dirent.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <strings.h>
 #include <string>
 #include <vector>
@@ -436,7 +434,6 @@ static Item g_items[] = {
 
     {SOUNDS, "Exit Soundboard", OPEN, MAIN},
     {SOUNDS, "Refresh Sounds", ACTION, MAIN, nullptr, ScanSounds},
-    {SOUNDS, "Stop Sound", ACTION, MAIN, nullptr, StopSound},
     {SOUNDS, "Find Sound Messages", ACTION, MAIN, nullptr, FindSoundMessages},
 
     {SETTINGS, "Exit Settings", OPEN, MAIN},
@@ -504,10 +501,10 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Turn Everything Off", "Switches every mod off."},
     {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
-    {"Soundboard", "Your imported .wav sounds. Add files, then Refresh Sounds."},
+    {"Soundboard", "Your imported .wav sounds. One at a time. Add files, then Refresh Sounds."},
     {"Find Sound Messages", "Writes the game's sound messages to the log."},
     {"Refresh Sounds", "Looks for .wav files again."},
-    {"Stop Sound", "Stops the sound that is playing."},
+
     {"NOVA X", "Menu credits."},
     {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
     {"Contributors: Community", "Thanks to the community for its support."},
@@ -1519,18 +1516,11 @@ static std::string g_soundDir;
 static Ref g_audioGo, g_audioSrc, g_clip;
 
 static std::string SoundDir() {
-    if (!g_soundDir.empty()) return g_soundDir;
-    char pkg[256] = {};
-    if (FILE *f = fopen("/proc/self/cmdline", "rb")) {          // the game's package name
-        size_t n = fread(pkg, 1, sizeof pkg - 1, f);
-        pkg[n] = 0;
-        fclose(f);
+    // The mods folder: the player drops their .wav files next to the mod's .so file.
+    if (g_soundDir.empty()) {
+        g_soundDir = "/sdcard/Android/data/com.TrassGames.Yeeps/files/mods";
+        ym::log("starter-menu: put .wav files in %s", g_soundDir.c_str());
     }
-    std::string base = std::string("/sdcard/Android/data/") + pkg + "/files";
-    for (const char *sub : {"", "/NovaX", "/NovaX/Sounds"})      // make the folders if they're missing
-        mkdir((base + sub).c_str(), 0777);
-    g_soundDir = base + "/NovaX/Sounds";
-    ym::log("starter-menu: put .wav files in %s", g_soundDir.c_str());
     return g_soundDir;
 }
 
@@ -1585,8 +1575,10 @@ static void StopSound() {
     if (Alive(g_audioSrc.get()) && G.srcStop.IsValid()) G.srcStop[g_audioSrc.get()]();
 }
 
+static double g_soundUntil = 0;                        // buttons stay locked until the sound is over
 static void PlaySoundIdx(int idx) {
     if (idx < 0 || idx >= (int)g_soundFiles.size()) return;
+    if (g_time < g_soundUntil) { Notify("Wait for the sound to finish"); return; }
     if (!G.clipCreate.IsValid() || !G.clipSetData.IsValid() || !G.srcPlay.IsValid() || !G.tAudioSource || !G.floatClass ||
         !G.arrayNew) { Notify("Audio isn't available in this game"); return; }
     std::vector<float> samples;
@@ -1618,6 +1610,7 @@ static void PlaySoundIdx(int idx) {
     if (G.srcSetVolume.IsValid()) G.srcSetVolume[src](1.0f);
     if (G.srcSetSpatial.IsValid()) G.srcSetSpatial[src](0.0f);     // 2D: same volume wherever you are
     G.srcPlay[src]();
+    g_soundUntil = g_time + std::max(1.0, (double)frames / rate);   // one press = one play, 1 s at least
     Notify("Playing %s", g_soundFiles[idx].c_str());
 }
 
@@ -1637,7 +1630,7 @@ static void ScanSounds() {
     g_soundItems.reserve(g_soundFiles.size());           // labels point into g_soundFiles: no more changes after this
     for (int i = 0; i < (int)g_soundFiles.size(); i++)
         g_soundItems.push_back({SOUNDS, g_soundFiles[i].c_str(), ACTION, MAIN, nullptr, nullptr, PlaySoundIdx, i});
-    if (g_soundFiles.empty()) Notify("No .wav files yet. Folder is in the log.");
+    if (g_soundFiles.empty()) Notify("No .wav files in the mods folder yet");
     else Notify("%d sounds found", (int)g_soundFiles.size());
     g_dirty = true;
 }
