@@ -459,6 +459,8 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Right Hand Menu", "Hold B, menu on your right hand."},
     {"Notifications", "Messages when you switch something."},
     {"Turn Everything Off", "Switches every mod off."},
+    {"Credits", "Who made this menu."},
+    {"@RandomGuy", "The menu is made by @RandomGuy."},
 };
 static const char *TipFor(const char *label) {
     if (strncmp(label, "Exit ", 5) == 0) return "Returns you back to the main category.";
