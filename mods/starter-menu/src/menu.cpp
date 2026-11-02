@@ -1,4 +1,4 @@
-// Blaze Menu (the starter menu): a hand menu in the style of ii's Stupid Menu (Gorilla Tag).
+// Nova X (the starter menu): a hand menu in the style of ii's Stupid Menu (Gorilla Tag).
 // The layout idea comes from ii's menu; the code is new.
 //   Hold Y (left hand)      -> menu on your left hand, tipped like ii's; turn your palm to you
 //                              (B and the right hand with "Right Hand Menu")
@@ -587,7 +587,7 @@ static void BuildMenu() {
     auto NewObject = [](const char *name) {
         return Class("UnityEngine", "GameObject").CreateNewObjectParameters(CreateMonoString(name));
     };
-    Il2CppObject *menu = NewObject("BlazeMenu"), *board = NewObject("BlazeMenuBoard");
+    Il2CppObject *menu = NewObject("NovaXMenu"), *board = NewObject("NovaXMenuBoard");
     if (!menu || !board) return;
     g_menu.set(menu);
     g_board.set(board);
@@ -608,14 +608,14 @@ static void BuildMenu() {
 
     if (Il2CppObject *canvas = Canvas(bt, Vector3(0, 0, -0.0105f), kBoardW + 2 * kSideX, kBoardH + 0.1f)) {
         Il2CppObject *ct = Tr(canvas);
-        Label(ct, "Blaze", Vector3(0, kTitleY, 0), kBtnW, 0.045f, 32, &g_title);
+        Label(ct, "Nova X", Vector3(0, kTitleY, 0), kBtnW, 0.045f, 32, &g_title);
         for (int r = 0; r < kRows; r++)
             g_rowLabel[r].set(Label(ct, "", Vector3(0, RowY(r), 0), kBtnW, kBtnH, 19, &g_rowText[r]));
         Label(ct, "<", Vector3(-kSideX, 0, -0.0005f), kSideW, 0.05f, 34, nullptr);
         Label(ct, ">", Vector3(kSideX, 0, -0.0005f), kSideW, 0.05f, 34, nullptr);
         Label(ct, "", Vector3(0, -kBoardH / 2 - 0.02f, 0), kBoardW + 0.1f, 0.03f, 15, &g_tipText);
         char ver[64];
-        snprintf(ver, sizeof ver, "Blaze build %s", ym::api()->gameVersion);
+        snprintf(ver, sizeof ver, "Nova X build %s", ym::api()->gameVersion);
         Label(ct, ver, Vector3(0, -kBoardH / 2 + 0.012f, 0), kBoardW, 0.02f, 11, nullptr);
     }
     // Pointer: a small ball on the index finger of the other hand
@@ -678,7 +678,7 @@ static void RenderPage() {
 
 static int Hex(float v) { return (int)(v < 0 ? 0 : v > 1 ? 255 : v * 255); }
 
-// The title is "Blaze" with a moving red-orange-yellow gradient, one color per letter
+// The title is "Nova X" with a moving red-orange-yellow gradient, one color per letter
 // (rich text). Rebuilt ten times a second, not every frame.
 static void UpdateTitle() {
     if (g_time < g_nextTitle) return;
@@ -686,7 +686,7 @@ static void UpdateTitle() {
     static const Color kFire[] = {Color(1, 0.1f, 0.05f, 1), Color(1, 0.45f, 0, 1), Color(1, 0.8f, 0.2f, 1), Color(1, 0.45f, 0, 1)};
     char buf[512];
     int n = 0;
-    const char *word = "Blaze";
+    const char *word = "Nova X";
     for (int i = 0; word[i]; i++) {
         float t = (float)g_time * 1.5f - i * 0.35f;
         Color c;
@@ -1080,7 +1080,7 @@ static void TeleportGunTick(const Buttons &in) {
     if (!hand || !G.raycast.IsValid() || !G.lrSetPosition.IsValid()) return;
     if (!g_gunBall.get()) {                              // made once per room
         Il2CppObject *ball = Prim(0, T().bgB, false);
-        Il2CppObject *lineGo = Class("UnityEngine", "GameObject").CreateNewObjectParameters(CreateMonoString("BlazeGunLine"));
+        Il2CppObject *lineGo = Class("UnityEngine", "GameObject").CreateNewObjectParameters(CreateMonoString("NovaXGunLine"));
         Il2CppObject *line = lineGo && G.tLine ? G.goAddComponent[lineGo](G.tLine) : nullptr;
         if (!ball || !line) return;
         G.trSetLocalScale[Tr(ball)](Vector3(0.1f, 0.1f, 0.1f));
