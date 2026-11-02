@@ -462,7 +462,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Jumping Jacks", "Arms go up and down at your sides. Hold left trigger."},
     {"Spaz", "Hands shake all over the place. Hold left trigger."},
     {"Beyblade", "Hands spin fast around your waist. Hold left trigger."},
-    {"Long Arms (1.5x)", "Scales both live hand reaches to 1.5x while enabled."},
+    {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Change Pointer Position", "Moves the ball on your finger."},
     {"Iron Man Speed", "Changes how strong Iron Man is."},
     {"Right Hand Menu", "Hold B, menu on your right hand."},
@@ -1184,33 +1184,37 @@ static void PauseTrackers(bool pause) {
 static void DanceTick(const Buttons &in, float dt) {
     Il2CppObject *head = g_head.get(), *lh = g_leftHand.get(), *rh = g_rightHand.get();
     bool danceWant = g_dance >= 0 && in.ltrig && head && lh && rh;
-    bool want = (danceWant || (f_longArms && head && lh && rh));
+    // Only dances pause controller trackers. Long Arms must keep tracking live input.
+    bool want = danceWant;
     if (want != g_dancing) {
-        // Dances need to pause controller trackers because they take over the hands.
-        // Long Arms does not: let the trackers update each frame, then scale their
-        // current hand offsets below so movement remains responsive and does not
-        // compound from the previous frame's already-scaled position.
-        PauseTrackers(danceWant);
+        PauseTrackers(want);
         g_dancing = want;
-        if (want) ym::log("starter-menu: rig mod active, paused %d trackers", g_pausedN);
+        if (want) ym::log("starter-menu: dancing, paused %d trackers", g_pausedN);
     }
-    if (!want) return;
+    if (!want) {
+        if (f_longArms && head && lh && rh) {
+            Vector3 hp = G.trGetPosition[head]();
+            Vector3 up(0, 1, 0);
+            Vector3 f = Flat(G.trGetForward[head]());
+            Vector3 right = Cross(up, f);
+            Vector3 shoulder = hp + up * -0.25f;
+            // Scale each tracked hand's offset from its shoulder, every frame.
+            // Trackers remain enabled, so movement continues to follow the controllers.
+            Vector3 leftShoulder = shoulder - right * 0.18f;
+            Vector3 rightShoulder = shoulder + right * 0.18f;
+            Vector3 leftOffset = G.trGetPosition[lh]() - leftShoulder;
+            Vector3 rightOffset = G.trGetPosition[rh]() - rightShoulder;
+            G.trSetPosition[lh](leftShoulder + leftOffset * 1.5f);
+            G.trSetPosition[rh](rightShoulder + rightOffset * 1.5f);
+        }
+        return;
+    }
     Vector3 hp = G.trGetPosition[head](), f = Flat(G.trGetForward[head]()), up(0, 1, 0);
     Vector3 r = Cross(up, f);                            // your right
     Vector3 shoulder = hp + up * -0.25f;
     float t = (float)g_time, s = sinf(t * 6), c = cosf(t * 6);
     Vector3 L, R;                                        // hand positions
-    if (!danceWant && f_longArms) {
-        // Scale the live controller-to-hand offsets by 1.5 every frame.
-        // Trackers remain enabled for this mode, so the source positions are fresh
-        // controller positions rather than the already-extended positions.
-        Vector3 trackedR = G.trGetPosition[rh]();
-        Vector3 trackedL = G.trGetPosition[lh]();
-        Vector3 rightShoulder = shoulder + r * 0.18f;
-        Vector3 leftShoulder  = shoulder - r * 0.18f;
-        R = rightShoulder + (trackedR - rightShoulder) * 1.5f;
-        L = leftShoulder + (trackedL - leftShoulder) * 1.5f;
-    } else switch (g_dance) {
+    switch (g_dance) {
     case 0:   // Wave: right hand up and waving, left hand on the hip
         R = shoulder + r * (0.35f + 0.12f * s) + up * 0.45f + f * 0.1f;
         L = shoulder + r * -0.25f + up * -0.25f + f * 0.05f;
