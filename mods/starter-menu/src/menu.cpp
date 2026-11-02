@@ -106,6 +106,7 @@ static struct {
     Method<bool> colliderIsTrigger, behaviourGetEnabledCollider;
     Method<void> ignoreLayers;            // a LayerMask: which layers your hands can climb on
     Method<void> goSetLayer;
+    Method<void> lrSetCaps, lrSetCorners;
     Method<Il2CppObject *> clipCreate;
     Method<bool> clipSetData;
     Method<void> srcSetClip, srcSetVolume, srcSetSpatial, srcPlay, srcStop;
@@ -209,6 +210,8 @@ static bool Lookups() {
     G.lrSetStartWidth = line.GetMethod("set_startWidth", 1);
     G.lrSetEndWidth = line.GetMethod("set_endWidth", 1);
     G.lrSetUseWorldSpace = line.GetMethod("set_useWorldSpace", 1);
+    G.lrSetCaps = line.GetMethod("set_numCapVertices", 1);
+    G.lrSetCorners = line.GetMethod("set_numCornerVertices", 1);
     G.tMeshCollider = Class("UnityEngine", "MeshCollider").GetMonoType();
     G.trGetParent = tr.GetMethod("get_parent", 0);
     G.trGetRoot = tr.GetMethod("get_root", 0);
@@ -350,6 +353,7 @@ static int g_dupeArmed = 0;
 static constexpr int kDances = 8;
 static bool g_danceSel[kDances];
 static bool f_longArms = false;
+static bool f_pen = false;
 static int g_dance = -1;            // the picked dance, -1 = none
 static bool f_fly, f_fastFly, f_platforms, f_lowGravity, f_rainbow, f_fps, f_clock, f_rightHand,
             f_notify = true;
@@ -372,12 +376,16 @@ static void DancePicked();
 static void ArmDupe9();
 static void ArmDupe27();
 static void FindSoundMessages();
+static void NextPenColor();
+static void NextPenSize();
+static void UndoStroke();
+static void ClearDrawing();
 static void ScanSounds();
 static void StopSound();
 static bool LeftHandItem();
 
-enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, NCAT };
-static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits", "Soundboard"};
+enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, PEN, NCAT };
+static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits", "Soundboard", "Pen"};
 enum Kind { OPEN, TOGGLE, ACTION };
 struct Item {
     Cat cat;
@@ -396,6 +404,7 @@ static Item g_items[] = {
     {MAIN, "Rig Mods", OPEN, RIG},
     {MAIN, "Items", OPEN, ITEMS},
     {MAIN, "Soundboard", OPEN, SOUNDS},
+    {MAIN, "Pen", OPEN, PEN},
     {MAIN, "Enabled Mods", OPEN, ENABLED},
     {MAIN, "Credits", OPEN, CREDITS},
 
@@ -435,6 +444,13 @@ static Item g_items[] = {
     {SOUNDS, "Exit Soundboard", OPEN, MAIN},
     {SOUNDS, "Refresh Sounds", ACTION, MAIN, nullptr, ScanSounds},
     {SOUNDS, "Find Sound Messages", ACTION, MAIN, nullptr, FindSoundMessages},
+
+    {PEN, "Exit Pen", OPEN, MAIN},
+    {PEN, "Pen On", TOGGLE, MAIN, &f_pen},
+    {PEN, "Undo Stroke", ACTION, MAIN, nullptr, UndoStroke},
+    {PEN, "Clear Drawing", ACTION, MAIN, nullptr, ClearDrawing},
+    {PEN, "Pen Color", ACTION, MAIN, nullptr, NextPenColor},
+    {PEN, "Pen Size", ACTION, MAIN, nullptr, NextPenSize},
 
     {SETTINGS, "Exit Settings", OPEN, MAIN},
     {SETTINGS, "Change Pointer Position", ACTION, MAIN, nullptr, NextPointer},
@@ -501,6 +517,12 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Turn Everything Off", "Switches every mod off."},
     {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
+    {"Pen", "Draw in the air. Only you can see it."},
+    {"Pen On", "Hold right trigger to draw with the ball on your right hand."},
+    {"Undo Stroke", "Removes the last line you drew."},
+    {"Clear Drawing", "Removes everything you drew."},
+    {"Pen Color", "Changes the ink color for new lines."},
+    {"Pen Size", "Thin, medium or thick lines."},
     {"Soundboard", "Your imported .wav sounds. One at a time. Add files, then Refresh Sounds."},
     {"Find Sound Messages", "Writes the game's sound messages to the log."},
     {"Refresh Sounds", "Looks for .wav files again."},
@@ -1635,6 +1657,104 @@ static void ScanSounds() {
     g_dirty = true;
 }
 
+// ---- pen (local only) --------------------------------------------------------------
+// Draws lines in the air with the right trigger. The lines are made only on your device
+// (nothing is sent), so nobody else sees them. They are gone when you leave the room.
+// Right trigger is also used by Noclip and Spawn On Hand, so switch those off while drawing.
+static constexpr int kMaxStrokes = 64, kMaxPoints = 500;
+struct Stroke { Ref go, line; int n = 0; };
+static Stroke g_strokes[kMaxStrokes];
+static int g_strokeN = 0;
+static bool g_penDrawing = false, g_penLocked = false, g_tipShown = false;
+static Vector3 g_penLast;
+static Ref g_penTip;
+static const Color kPenColors[] = {Color(1, 0.1f, 0.1f, 1), Color(1, 0.5f, 0, 1), Color(1, 0.9f, 0.1f, 1), Color(0.2f, 0.9f, 0.2f, 1),
+                                   Color(0.1f, 0.9f, 0.9f, 1), Color(0.2f, 0.4f, 1, 1), Color(0.7f, 0.3f, 1, 1), Color(1, 1, 1, 1)};
+static const char *kPenColorNames[] = {"red", "orange", "yellow", "green", "cyan", "blue", "purple", "white"};
+static const float kPenSizes[] = {0.006f, 0.014f, 0.03f};
+static const char *kPenSizeNames[] = {"thin", "medium", "thick"};
+static int g_penColor = 7, g_penSize = 1;
+
+static void NextPenColor() {
+    g_penColor = (g_penColor + 1) % 8;
+    SetColor(g_penTip.get(), kPenColors[g_penColor]);
+    Notify("Pen color: %s", kPenColorNames[g_penColor]);
+}
+static void NextPenSize() { g_penSize = (g_penSize + 1) % 3; Notify("Pen size: %s", kPenSizeNames[g_penSize]); }
+
+static void UndoStroke() {
+    if (g_strokeN <= 0) return;
+    Stroke &st = g_strokes[--g_strokeN];
+    Kill(st.go);
+    st.line.clear();
+    st.n = 0;
+    g_penDrawing = false;
+    g_penLocked = true;                          // let go of the trigger before drawing again
+}
+static void ClearDrawing() {
+    while (g_strokeN > 0) UndoStroke();
+    Notify("Drawing cleared");
+}
+
+static void PenTick(const Buttons &in) {
+    Il2CppObject *hand = g_rightHand.get();
+    if (!f_pen || !hand) {
+        if (g_tipShown) { Show(g_penTip, false); g_tipShown = false; }
+        g_penDrawing = false;
+        return;
+    }
+    if (!Alive(g_penTip.get())) {                // the ball at the pen tip, made once per room
+        Il2CppObject *tip = Prim(0, kPenColors[g_penColor], false);
+        if (!tip) return;
+        Il2CppObject *t = Tr(tip);
+        G.trSetParent[t](hand, false);
+        G.trSetLocalPosition[t](Vector3(0, 0, 0.1f));
+        G.trSetLocalScale[t](Vector3(0.015f, 0.015f, 0.015f));
+        g_penTip.set(tip);
+        g_tipShown = true;
+    }
+    if (!g_tipShown) { Show(g_penTip, true); g_tipShown = true; }
+    if (!in.rtrig) g_penLocked = false;
+    bool want = in.rtrig && !in.rgrip && !g_menuShown && !g_penLocked;
+    if (!want) { g_penDrawing = false; return; }
+    if (!G.lrSetPosition.IsValid() || !G.tLine) return;
+    Vector3 pos = G.trGetPosition[Tr(g_penTip.get())]();
+    if (!g_penDrawing) {                         // a new line starts
+        if (g_strokeN >= kMaxStrokes) { Notify("Drawing is full: Clear Drawing"); g_penLocked = true; return; }
+        Il2CppObject *go = Class("UnityEngine", "GameObject").CreateNewObjectParameters(CreateMonoString("NovaXPen"));
+        Il2CppObject *line = go ? G.goAddComponent[go](G.tLine) : nullptr;
+        if (!line) return;
+        if (Il2CppObject *m = G.rendererGetMaterial[line]()) {
+            if (G.shader.get()) G.matSetShader[m](G.shader.get());
+            G.matSetColor[m](kPenColors[g_penColor]);
+        }
+        G.lrSetUseWorldSpace[line](true);
+        G.lrSetStartWidth[line](kPenSizes[g_penSize]);
+        G.lrSetEndWidth[line](kPenSizes[g_penSize]);
+        if (G.lrSetCaps.IsValid()) G.lrSetCaps[line](4);
+        if (G.lrSetCorners.IsValid()) G.lrSetCorners[line](4);
+        G.lrSetPositionCount[line](1);
+        G.lrSetPosition[line](0, pos);
+        Stroke &st = g_strokes[g_strokeN++];
+        st.go.set(go);
+        st.line.set(line);
+        st.n = 1;
+        g_penLast = pos;
+        g_penDrawing = true;
+        return;
+    }
+    Vector3 d = pos - g_penLast;
+    if (d.x * d.x + d.y * d.y + d.z * d.z < 0.0001f) return;      // moved less than 1 cm
+    Stroke &st = g_strokes[g_strokeN - 1];
+    Il2CppObject *line = st.line.get();
+    if (!Alive(line)) { g_penDrawing = false; return; }
+    G.lrSetPositionCount[line](st.n + 1);
+    G.lrSetPosition[line](st.n, pos);
+    st.n++;
+    g_penLast = pos;
+    if (st.n >= kMaxPoints) { g_penDrawing = false; g_penLocked = true; }   // long line done: release and press again
+}
+
 // ---- callbacks ---------------------------------------------------------------
 
 static void OnRoomChange() {
@@ -1643,6 +1763,11 @@ static void OnRoomChange() {
     for (Ref *r : {&g_board, &g_bg, &g_outline, &g_title, &g_titleBar, &g_prev, &g_next, &g_notifyText, &g_tipText}) r->clear();
     for (Ref *r : {&g_menu, &g_pointer, &g_notifyGo, &g_leftPlatform, &g_rightPlatform, &g_gunBall, &g_gunLineGo, &g_audioGo, &g_clip}) Kill(*r);
     g_audioSrc.clear();
+    for (int i = 0; i < g_strokeN; i++) { Kill(g_strokes[i].go); g_strokes[i].line.clear(); g_strokes[i].n = 0; }
+    g_strokeN = 0;
+    Kill(g_penTip);
+    g_tipShown = false;
+    g_penDrawing = false;
     PauseTrackers(false);
     g_dancing = false;
     g_laHave = false;
@@ -1698,6 +1823,7 @@ static void OnUpdate(float dt) {
     ApplyGravity();
     NoclipTick(in);
     TeleportGunTick(in);
+    PenTick(in);
     try { SpawnOnHandTick(in); ItemQueueTick(); }
     catch (...) { g_itemQueue.clear(); ym::log("starter-menu: item code error"); }
     DanceTick(in, dt);              // last: it moves your hands after everything else
