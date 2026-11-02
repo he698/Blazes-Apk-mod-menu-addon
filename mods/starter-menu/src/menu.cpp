@@ -328,6 +328,7 @@ static int g_dupeArmed = 0;
 
 static constexpr int kDances = 8;
 static bool g_danceSel[kDances];
+static bool f_longArms = false;
 static int g_dance = -1;            // the picked dance, -1 = none
 static bool f_fly, f_fastFly, f_platforms, f_lowGravity, f_rainbow, f_fps, f_clock, f_rightHand,
             f_notify = true;
@@ -396,6 +397,7 @@ static Item g_items[] = {
     {RIG, "Jumping Jacks", TOGGLE, MAIN, &g_danceSel[5], DancePicked},
     {RIG, "Spaz", TOGGLE, MAIN, &g_danceSel[6], DancePicked},
     {RIG, "Beyblade", TOGGLE, MAIN, &g_danceSel[7], DancePicked},
+    {RIG, "Long Arms (1.5x)", TOGGLE, MAIN, &f_longArms},
 
     {ITEMS, "Exit Items", OPEN, MAIN},
     {ITEMS, "Spawn Item Gun", TOGGLE, MAIN, &f_itemGun},
@@ -416,8 +418,9 @@ static Item g_items[] = {
     {SETTINGS, "Turn Everything Off", ACTION, MAIN, nullptr, AllOff},
 
     {CREDITS, "Exit Credits", OPEN, MAIN},
-    {CREDITS, "2ndCretor: @Nova2XP", ACTION},
+    {CREDITS, "NOVA X", ACTION},
     {CREDITS, "Creator: @RandomGuy", ACTION},
+    {CREDITS, "Contributors: Community", ACTION},
 };
 static constexpr int kItems = sizeof(g_items) / sizeof(g_items[0]);
 static Item g_returnItem = {ENABLED, "Exit Enabled Mods", OPEN, MAIN};
@@ -459,6 +462,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Jumping Jacks", "Arms go up and down at your sides. Hold left trigger."},
     {"Spaz", "Hands shake all over the place. Hold left trigger."},
     {"Beyblade", "Hands spin fast around your waist. Hold left trigger."},
+    {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Change Pointer Position", "Moves the ball on your finger."},
     {"Iron Man Speed", "Changes how strong Iron Man is."},
     {"Right Hand Menu", "Hold B, menu on your right hand."},
@@ -1179,7 +1183,8 @@ static void PauseTrackers(bool pause) {
 
 static void DanceTick(const Buttons &in, float dt) {
     Il2CppObject *head = g_head.get(), *lh = g_leftHand.get(), *rh = g_rightHand.get();
-    bool want = g_dance >= 0 && in.ltrig && head && lh && rh;
+    bool danceWant = g_dance >= 0 && in.ltrig && head && lh && rh;
+    bool want = (danceWant || (f_longArms && head && lh && rh));
     if (want != g_dancing) {
         PauseTrackers(want);
         g_dancing = want;
@@ -1191,7 +1196,12 @@ static void DanceTick(const Buttons &in, float dt) {
     Vector3 shoulder = hp + up * -0.25f;
     float t = (float)g_time, s = sinf(t * 6), c = cosf(t * 6);
     Vector3 L, R;                                        // hand positions
-    switch (g_dance) {
+    if (!danceWant && f_longArms) {
+        // Stable extended pose: trackers are paused while enabled, preventing them
+        // from snapping the hands back to the controller positions.
+        R = shoulder + r * 0.90f + up * -0.12f + f * 0.08f;
+        L = shoulder - r * 0.90f + up * -0.12f + f * 0.08f;
+    } else switch (g_dance) {
     case 0:   // Wave: right hand up and waving, left hand on the hip
         R = shoulder + r * (0.35f + 0.12f * s) + up * 0.45f + f * 0.1f;
         L = shoulder + r * -0.25f + up * -0.25f + f * 0.05f;
@@ -1236,14 +1246,18 @@ static void DanceTick(const Buttons &in, float dt) {
         float len = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
         return len > 0.7f ? sh + d * (0.7f / len) : hand;
     };
-    R = reach(R, shoulder + r * 0.18f);
-    L = reach(L, shoulder - r * 0.18f);
-    float k = g_dance == 6 ? 1.0f : fminf(1.0f, dt * 14.0f);     // Spaz stays twitchy
+    if (danceWant) {
+        R = reach(R, shoulder + r * 0.18f);
+        L = reach(L, shoulder - r * 0.18f);
+    }
+    float k = danceWant && g_dance == 6 ? 1.0f : fminf(1.0f, dt * 14.0f);     // Spaz stays twitchy
     G.trSetPosition[lh](G.trGetPosition[lh]() + (L - G.trGetPosition[lh]()) * k);
     G.trSetPosition[rh](G.trGetPosition[rh]() + (R - G.trGetPosition[rh]()) * k);
-    Quaternion look = Quaternion::LookRotation(f, up);
-    G.trSetRotation[lh](look);
-    G.trSetRotation[rh](look);
+    if (danceWant) {
+        Quaternion look = Quaternion::LookRotation(f, up);
+        G.trSetRotation[lh](look);
+        G.trSetRotation[rh](look);
+    }
 }
 
 // ---- items (everyone sees these) ------------------------------------------------
