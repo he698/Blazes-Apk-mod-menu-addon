@@ -416,9 +416,8 @@ static Item g_items[] = {
     {SETTINGS, "Turn Everything Off", ACTION, MAIN, nullptr, AllOff},
 
     {CREDITS, "Exit Credits", OPEN, MAIN},
-    {CREDITS, "NOVA X", ACTION},
+    {CREDITS, "2ndCretor: @Nova2XP", ACTION},
     {CREDITS, "Creator: @RandomGuy", ACTION},
-    {CREDITS, "Contributors: Community", ACTION},
 };
 static constexpr int kItems = sizeof(g_items) / sizeof(g_items[0]);
 static Item g_returnItem = {ENABLED, "Exit Enabled Mods", OPEN, MAIN};
