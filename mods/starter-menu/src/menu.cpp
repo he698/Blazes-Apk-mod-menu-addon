@@ -456,8 +456,8 @@ static Item g_items[] = {
     {ITEMS, "Spawn On Hand", TOGGLE, MAIN, &f_spawnOnHand},
 
     {SOUNDS, "Exit Soundboard", OPEN, MAIN},
-    {SOUNDS, "Refresh Sounds", ACTION, MAIN, nullptr, ScanSounds},
     {SOUNDS, "Stop Sound", ACTION, MAIN, nullptr, StopSound},
+    {SOUNDS, "Refresh Sounds", ACTION, MAIN, nullptr, ScanSounds},
     {SOUNDS, "Find Sound Messages", ACTION, MAIN, nullptr, FindSoundMessages},
 
     {PEN, "Exit Pen", OPEN, MAIN},
@@ -543,7 +543,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Soundboard", "Your imported .wav sounds. One at a time. Add files, then Refresh Sounds."},
     {"Find Sound Messages", "Writes the game's sound messages to the log."},
     {"Refresh Sounds", "Looks for .wav files again."},
-    {"Stop Sound", "Stops the sound now. Sounds stay locked until it would have ended."},
+    {"Stop Sound", "Stops the sound now. You can play another after half a second."},
 
     {"NOVA X", "Menu credits."},
     {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
@@ -1658,13 +1658,15 @@ static bool LoadWav(const std::string &path, std::vector<float> &out, int &ch, i
     return true;
 }
 
+static double g_soundUntil = 0;                        // buttons stay locked until the sound is over
+
 static void StopSound() {
     if (Alive(g_audioSrc.get()) && G.srcStop.IsValid()) G.srcStop[g_audioSrc.get()]();
     VoiceStop();
-    // g_soundUntil is left alone on purpose: stopping does not unlock the buttons early.
+    // Unlock the sound buttons half a second after Stop, so you can play another one.
+    if (g_soundUntil > g_time + 0.5) g_soundUntil = g_time + 0.5;
 }
 
-static double g_soundUntil = 0;                        // buttons stay locked until the sound is over
 static void PlaySoundIdx(int idx) {
     if (idx < 0 || idx >= (int)g_soundFiles.size()) return;
     if (g_time < g_soundUntil) { Notify("Wait for the sound to finish"); return; }
