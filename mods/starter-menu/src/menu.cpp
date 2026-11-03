@@ -754,19 +754,6 @@ static void RenderPage() {
         SetColor(g_rowCube[r].get(), r == g_flashRow ? Color(1, 0.9f, 0.6f, 1) : on ? T().buttonOn : T().button);
         if (Alive(g_rowText[r].get())) G.graphicSetColor[g_rowText[r].get()](on ? Color(1, 1, 1, 1) : T().title);
     }
-    bool pages = PageCount() > 1;
-    Show(g_prev, pages);
-    Show(g_next, pages);
-    NextOutlineColor(g_prev.get(), T().button);
-    NextOutlineColor(g_next.get(), T().button);
-    NextOutlineColor(g_outline.get(), OutlineColor());
-    NextOutlineColor(g_titleBar.get(), T().buttonOn);
-    NextOutlineColor(g_pointer.get(), T().bgB);
-    if (Alive(g_title.get())) G.graphicSetColor[g_title.get()](Color(1, 1, 1, 1));
-    g_nextTitle = 0;                     // refresh the title now
-    g_dirty = false;
-}
-
 static int Hex(float v) { return (int)(v < 0 ? 0 : v > 1 ? 255 : v * 255); }
 
 // The title is "Nova X" with a moving red-orange-yellow gradient, one color per letter
