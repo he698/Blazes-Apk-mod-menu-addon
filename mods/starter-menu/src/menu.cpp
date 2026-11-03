@@ -96,7 +96,7 @@ static struct {
     Method<bool> behaviourGetEnabled;
     Method<void> behaviourSetEnabled;
     std::vector<BNM::MonoType *> trackerTypes;
-    Method<Il2CppObject *> rendererGetMaterial, shaderFind, findAll, findScene, findSceneByType, builtinResource;
+    Method<Il2CppObject *> rendererGetMaterial, shaderFind, findAll, findScene, findSceneByType, builtinResource, overlapSphere;
     Field<Il2CppObject *> leftHand, rightHand, headTransform, bodyCollider, headCollider;
     Field<float> maxJumpSpeed, jumpMultiplier;
     Method<Vector3> plGetVelocity;
@@ -202,6 +202,7 @@ static bool Lookups() {
     G.colliderIsTrigger = Class("UnityEngine", "Collider").GetMethod("get_isTrigger", 0);
     G.raycast = Overload(Class("UnityEngine", "Physics"), "Raycast",
                          {"UnityEngine.Vector3", "UnityEngine.Vector3", "UnityEngine.RaycastHit", "System.Single", "System.Int32"});
+    G.overlapSphere = Overload(Class("UnityEngine", "Physics"), "OverlapSphere", {"UnityEngine.Vector3", "System.Single"});
     G.findScene = Overload(obj, "FindObjectsOfType", {"System.Type"});      // only when noclip starts
     G.findSceneByType = Overload(obj, "FindObjectsByType", {"System.Type", "UnityEngine.FindObjectsSortMode"});
     G.builtinResource = Overload(res, "GetBuiltinResource", {"System.Type", "System.String"});
@@ -356,7 +357,7 @@ static Buttons ReadButtons() {
 
 // Feature switches. Every feature only changes your own game.
 static bool f_velocityFly, f_ironMan, f_tpGun, f_noclip, f_speedBoost, f_noGravity;
-static bool f_itemGun, f_spawnOnHand, f_car;
+static bool f_itemGun, f_spawnOnHand, f_car, f_deleteGun;
 static char g_itemKey[64] = "";                // the last item you held (learned on grab)
 struct PendingItem { Vector3 pos, vel; };
 static std::vector<PendingItem> g_itemQueue;
@@ -380,6 +381,7 @@ static void SaveSpot();
 static void GoToSpot();
 static void NextTheme();
 static void NextMenuSize();
+static void RestoreObjects();
 static void AllOff();
 static void PointerToHand();
 static void NextPointer();
@@ -455,6 +457,8 @@ static Item g_items[] = {
     {ITEMS, "Duplicate Items (3x3)", ACTION, MAIN, nullptr, ArmDupe9},
     {ITEMS, "Duplicate Items (3x3x3)", ACTION, MAIN, nullptr, ArmDupe27},
     {ITEMS, "Spawn On Hand", TOGGLE, MAIN, &f_spawnOnHand},
+    {ITEMS, "Delete Object Gun", TOGGLE, MAIN, &f_deleteGun},
+    {ITEMS, "Restore Objects", ACTION, MAIN, nullptr, RestoreObjects},
 
     {SOUNDS, "Exit Soundboard", OPEN, MAIN},
     {SOUNDS, "Stop Sound", ACTION, MAIN, nullptr, StopSound},
@@ -521,6 +525,8 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Duplicate Items (3x3)", "9 of the item in your left hand appear in front of you."},
     {"Duplicate Items (3x3x3)", "27 of the item in your left hand appear in front of you."},
     {"Spawn On Hand", "Each right trigger spawns the item from your left hand at your right hand."},
+    {"Delete Object Gun", "Right grip aims, trigger hides the object. Only you see it gone."},
+    {"Restore Objects", "Brings back everything you hid."},
     {"Wave", "Waves one hand, the other on your hip. Hold left trigger."},
     {"Helicopter", "Both arms spin around you. Hold left trigger."},
     {"T-Pose", "The classic T-pose. Hold left trigger."},
@@ -985,6 +991,7 @@ static void AllOff() {
     g_dupeArmed = 0;
     g_itemQueue.clear();
     StopSound();
+    RestoreObjects();
     PointerToHand();
     Notify("Everything off");
 }
@@ -1171,12 +1178,48 @@ static void NoclipTick(const Buttons &in) {
     if (want) ym::log("starter-menu: noclip on (layers 0x%x, body layer %d, %d colliders off)", mask, g_bodyLayer, g_noclipOffN);
 }
 
+// Delete Object Gun: hides the object you aim at, on your own device only (nothing is
+// sent, nobody else sees it gone). Hidden objects are only switched off, so Restore Objects
+// (and Turn Everything Off) bring them back. Your own player is never hidden.
+static Ref g_hidden[64];
+static int g_hiddenN = 0;
+static double g_nextHide = 0;
+static void RestoreObjects() {
+    int n = g_hiddenN;
+    for (int i = 0; i < g_hiddenN; i++) {
+        if (Alive(g_hidden[i].get())) G.goSetActive[g_hidden[i].get()](true);
+        g_hidden[i].clear();
+    }
+    g_hiddenN = 0;
+    Notify("%d objects restored", n);
+}
+static void HideObjectAt(Vector3 point) {
+    if (g_time < g_nextHide || !G.overlapSphere.IsValid()) return;
+    g_nextHide = g_time + 0.3;
+    if (g_hiddenN >= 64) { Notify("Too many hidden: Restore Objects"); return; }
+    auto *arr = (uint8_t *)G.overlapSphere(point, 0.03f);
+    size_t n = arr ? *(uintptr_t *)(arr + 0x18) : 0;
+    Il2CppObject *pt = PlayerTransform();
+    Il2CppObject *myRoot = pt ? G.trGetRoot[pt]() : nullptr;
+    for (size_t i = 0; i < n; i++) {
+        Il2CppObject *col = ((Il2CppObject **)(arr + 0x20))[i];
+        if (!Alive(col)) continue;
+        Il2CppObject *go = G.compGameObject[col](), *ct = G.compTransform[col]();
+        if (!go || !ct || (myRoot && G.trGetRoot[ct]() == myRoot)) continue;
+        G.goSetActive[go](false);
+        g_hidden[g_hiddenN++].set(go);
+        Notify("Hidden %d", g_hiddenN);
+        return;
+    }
+    Notify("Nothing to hide there");
+}
+
 // Teleport Gun: hold right grip to aim (a line and a ball show where you land), press
 // the right trigger to go there.
 static Ref g_gunLine, g_gunLineGo, g_gunBall;
 static bool g_gunTrigger = false;
 static void TeleportGunTick(const Buttons &in) {
-    bool aiming = (f_tpGun || f_itemGun) && in.rgrip;
+    bool aiming = (f_tpGun || f_itemGun || f_deleteGun) && in.rgrip;
     if (!aiming) {
         Show(g_gunLineGo, false);
         Show(g_gunBall, false);
@@ -1219,7 +1262,8 @@ static void TeleportGunTick(const Buttons &in) {
                 g_nextItem = g_time + 0.5;
                 g_itemQueue.push_back({end + Vector3(0, 0.3f, 0), Vector3(0, 0, 0)});
             }
-        } else TeleportPlayer(end + Vector3(0, 1.0f, 0));
+        } else if (f_deleteGun) HideObjectAt(end);
+        else TeleportPlayer(end + Vector3(0, 1.0f, 0));
     }
     g_gunTrigger = in.rtrig;
 }
@@ -1898,11 +1942,13 @@ static void OnRoomChange() {
     g_dancing = false;
     Kill(g_tagGo);
     g_tagText.clear();
-    g_tagShown = true;
+    g_tagShown = false;
     g_laHave = false;
     g_voiceOn = false;
     g_recorder.clear();
     g_gunLine.clear();
+    for (int i = 0; i < g_hiddenN; i++) g_hidden[i].clear();   // old room's objects are gone
+    g_hiddenN = 0;
     if (g_noclipOn && g_player.get()) {           // leaving the room mid-noclip: put things back
         Buttons none;                             // trigger "released"
         NoclipTick(none);
