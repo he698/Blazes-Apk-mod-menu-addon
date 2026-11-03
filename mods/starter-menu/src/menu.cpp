@@ -367,7 +367,6 @@ static constexpr int kDances = 8;
 static bool g_danceSel[kDances];
 static bool f_longArms = false;
 static bool f_pen = false;
-static bool f_novaTag = false;
 static int g_dance = -1;            // the picked dance, -1 = none
 static bool f_fly, f_fastFly, f_platforms, f_lowGravity, f_rainbow, f_fps, f_clock, f_rightHand,
             f_notify = true;
@@ -442,7 +441,7 @@ static Item g_items[] = {
     {RIG, "Wave", TOGGLE, MAIN, &g_danceSel[0], DancePicked},
     {RIG, "Helicopter", TOGGLE, MAIN, &g_danceSel[1], DancePicked},
     {RIG, "T-Pose", TOGGLE, MAIN, &g_danceSel[2], DancePicked},
-    {RIG, "Windmill", TOGGLE, MAIN, &g_danceSel[3], DancePicked},
+    {RIG, "Walk", TOGGLE, MAIN, &g_danceSel[3], DancePicked},
     {RIG, "Swim", TOGGLE, MAIN, &g_danceSel[4], DancePicked},
     {RIG, "Jumping Jacks", TOGGLE, MAIN, &g_danceSel[5], DancePicked},
     {RIG, "Spaz", TOGGLE, MAIN, &g_danceSel[6], DancePicked},
@@ -477,12 +476,12 @@ static Item g_items[] = {
     {SETTINGS, "Show FPS", TOGGLE, MAIN, &f_fps},
     {SETTINGS, "Show Clock", TOGGLE, MAIN, &f_clock},
     {SETTINGS, "Notifications", TOGGLE, MAIN, &f_notify},
-    {SETTINGS, "Nova X Tag", TOGGLE, MAIN, &f_novaTag},
     {SETTINGS, "Turn Everything Off", ACTION, MAIN, nullptr, AllOff},
 
     {CREDITS, "Exit Credits", OPEN, MAIN},
-    {CREDITS, "NOVA2XP", ACTION},
+    {CREDITS, "NOVA X", ACTION},
     {CREDITS, "Creator: @RandomGuy", ACTION},
+    {CREDITS, "Contributors: Community", ACTION},
 };
 static constexpr int kItems = sizeof(g_items) / sizeof(g_items[0]);
 static Item g_returnItem = {ENABLED, "Exit Enabled Mods", OPEN, MAIN};
@@ -520,7 +519,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Wave", "Waves one hand, the other on your hip. Hold left trigger."},
     {"Helicopter", "Both arms spin around you. Hold left trigger."},
     {"T-Pose", "The classic T-pose. Hold left trigger."},
-    {"Windmill", "Arms spin like a windmill. Hold left trigger."},
+    {"Walk", "Arms spin like a Walking. Hold left trigger."},
     {"Swim", "Swims through the air. Hold left trigger."},
     {"Jumping Jacks", "Arms go up and down at your sides. Hold left trigger."},
     {"Spaz", "Hands shake all over the place. Hold left trigger."},
@@ -529,7 +528,6 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Iron Man Speed", "Changes how strong Iron Man is."},
     {"Right Hand Menu", "Hold B, menu on your right hand."},
     {"Notifications", "Messages when you switch something."},
-    {"Nova X Tag", "A 'Nova X User' tag above your head. Only you see it, in a mirror or camera."},
     {"Turn Everything Off", "Switches every mod off."},
     {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
@@ -543,8 +541,10 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Find Sound Messages", "Writes the game's sound messages to the log."},
     {"Refresh Sounds", "Looks for .wav files again."},
     {"Stop Sound", "Stops the sound now. Sounds stay locked until it would have ended."},
-    {"NOVA2XP", "My Cool Friend."},
-    {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
+
+    {"NOVA2XP", "Menu Idea."},
+    {"@RandomGuy", "The menu is made by @RandomGuy."},
+};
 static const char *TipFor(const char *label) {
     if (strncmp(label, "Exit ", 5) == 0) return "Returns you back to the main category.";
     for (auto &t : kTips) if (strcmp(t.label, label) == 0) return t.tip;
@@ -554,7 +554,7 @@ static const char *TipFor(const char *label) {
 // Colors in the ii menu style: an animated background and darker buttons when on.
 struct Theme { const char *name; Color bgA, bgB, button, buttonOn, title; };
 static const Theme kThemes[] = {
-    {"Blaze",  Color(0.65f, 0.30f, 1.0f, 1), Color(0.45f, 0.15f, 0.85f, 1), Color(0.38f, 0.15f, 0.60f, 1), Color(0.18f, 0.06f, 0.30f, 1), Color(0.88f, 0.75f, 1.0f, 1)},Color(1.0f, 0.62f, 0.20f, 1)},
+    {"Blaze",  Color(0.65f, 0.30f, 1.0f, 1), Color(0.45f, 0.15f, 0.85f, 1), Color(0.38f, 0.15f, 0.60f, 1), Color(0.18f, 0.06f, 0.30f, 1), Color(0.88f, 0.75f, 1.0f, 1)},
     {"Orange", Color(1.0f, 0.50f, 0.0f, 1), Color(1.0f, 0.40f, 0.0f, 1), Color(0.67f, 0.33f, 0.0f, 1), Color(0.33f, 0.16f, 0.0f, 1), Color(1.0f, 0.75f, 0.49f, 1)},
     {"Blue",   Color(0.20f, 0.50f, 1.0f, 1), Color(0.10f, 0.30f, 0.85f, 1), Color(0.10f, 0.28f, 0.65f, 1), Color(0.04f, 0.12f, 0.32f, 1), Color(0.70f, 0.85f, 1.0f, 1)},
     {"Green",  Color(0.30f, 0.85f, 0.30f, 1), Color(0.15f, 0.65f, 0.20f, 1), Color(0.12f, 0.45f, 0.12f, 1), Color(0.05f, 0.22f, 0.05f, 1), Color(0.75f, 1.0f, 0.75f, 1)},
@@ -1820,36 +1820,6 @@ static void PenTick(const Buttons &in) {
     if (st.n >= kMaxPoints) { g_penDrawing = false; g_penLocked = true; }   // long line done: release and press again
 }
 
-// ---- Nova X tag (local only) -------------------------------------------------------
-// A "Nova X User" tag floating above your own head. It is made on your device only, so
-// nobody else sees it. It turns to face whoever is in front of you.
-static Ref g_tagGo, g_tagText;
-static bool g_tagShown = false;
-static void TagTick() {
-    Il2CppObject *head = g_head.get();
-    if (!f_novaTag || !head) {
-        if (g_tagShown) { Show(g_tagGo, false); g_tagShown = false; }
-        return;
-    }
-    if (!Alive(g_tagGo.get())) {                       // made once per room
-        if (!G.font.get()) return;
-        Il2CppObject *c = Canvas(head, Vector3(0, 0.3f, 0), 0.4f, 0.08f);
-        if (!c) return;
-        Label(Tr(c), "Nova X User", Vector3(0, 0, 0), 0.4f, 0.08f, 40, &g_tagText);
-        if (Alive(g_tagText.get())) G.graphicSetColor[g_tagText.get()](T().title);
-        g_tagGo.set(c);
-        g_tagShown = true;
-    } else if (!g_tagShown) {
-        Show(g_tagGo, true);
-        g_tagShown = true;
-    }
-    Il2CppObject *t = Tr(g_tagGo.get());
-    Vector3 f = Flat(G.trGetForward[head]());
-    G.trSetPosition[t](G.trGetPosition[head]() + Vector3(0, 0.3f, 0));
-    G.trSetRotation[t](Quaternion::LookRotation(f * -1.0f));      // readable from the front
-    if (Alive(g_tagText.get())) G.graphicSetColor[g_tagText.get()](T().title);
-}
-
 // ---- callbacks ---------------------------------------------------------------
 
 static void OnRoomChange() {
@@ -1865,9 +1835,6 @@ static void OnRoomChange() {
     g_penDrawing = false;
     PauseTrackers(false);
     g_dancing = false;
-    Kill(g_tagGo);
-    g_tagText.clear();
-    g_tagShown = false;
     g_laHave = false;
     g_voiceOn = false;
     g_recorder.clear();
@@ -1924,7 +1891,6 @@ static void OnUpdate(float dt) {
     NoclipTick(in);
     TeleportGunTick(in);
     PenTick(in);
-    TagTick();
     VoiceTick();
     try { SpawnOnHandTick(in); ItemQueueTick(); }
     catch (...) { g_itemQueue.clear(); ym::log("starter-menu: item code error"); }
