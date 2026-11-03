@@ -367,6 +367,7 @@ static constexpr int kDances = 8;
 static bool g_danceSel[kDances];
 static bool f_longArms = false;
 static bool f_pen = false;
+static bool f_novaTag = false;
 static int g_dance = -1;            // the picked dance, -1 = none
 static bool f_fly, f_fastFly, f_platforms, f_lowGravity, f_rainbow, f_fps, f_clock, f_rightHand,
             f_notify = true;
@@ -476,6 +477,7 @@ static Item g_items[] = {
     {SETTINGS, "Show FPS", TOGGLE, MAIN, &f_fps},
     {SETTINGS, "Show Clock", TOGGLE, MAIN, &f_clock},
     {SETTINGS, "Notifications", TOGGLE, MAIN, &f_notify},
+    {SETTINGS, "Nova X Tag", TOGGLE, MAIN, &f_novaTag},
     {SETTINGS, "Turn Everything Off", ACTION, MAIN, nullptr, AllOff},
 
     {CREDITS, "Exit Credits", OPEN, MAIN},
@@ -528,6 +530,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Iron Man Speed", "Changes how strong Iron Man is."},
     {"Right Hand Menu", "Hold B, menu on your right hand."},
     {"Notifications", "Messages when you switch something."},
+    {"Nova X Tag", "A 'Nova X User' tag above your head. Only you see it, in a mirror or camera."},
     {"Turn Everything Off", "Switches every mod off."},
     {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
@@ -1821,6 +1824,36 @@ static void PenTick(const Buttons &in) {
     if (st.n >= kMaxPoints) { g_penDrawing = false; g_penLocked = true; }   // long line done: release and press again
 }
 
+// ---- Nova X tag (local only) -------------------------------------------------------
+// A "Nova X User" tag floating above your own head. It is made on your device only, so
+// nobody else sees it. It turns to face whoever is in front of you.
+static Ref g_tagGo, g_tagText;
+static bool g_tagShown = false;
+static void TagTick() {
+    Il2CppObject *head = g_head.get();
+    if (!f_novaTag || !head) {
+        if (g_tagShown) { Show(g_tagGo, false); g_tagShown = false; }
+        return;
+    }
+    if (!Alive(g_tagGo.get())) {                       // made once per room
+        if (!G.font.get()) return;
+        Il2CppObject *c = Canvas(head, Vector3(0, 0.3f, 0), 0.4f, 0.08f);
+        if (!c) return;
+        Label(Tr(c), "Nova X User", Vector3(0, 0, 0), 0.4f, 0.08f, 40, &g_tagText);
+        if (Alive(g_tagText.get())) G.graphicSetColor[g_tagText.get()](T().title);
+        g_tagGo.set(c);
+        g_tagShown = true;
+    } else if (!g_tagShown) {
+        Show(g_tagGo, true);
+        g_tagShown = true;
+    }
+    Il2CppObject *t = Tr(g_tagGo.get());
+    Vector3 f = Flat(G.trGetForward[head]());
+    G.trSetPosition[t](G.trGetPosition[head]() + Vector3(0, 0.3f, 0));
+    G.trSetRotation[t](Quaternion::LookRotation(f * -1.0f));      // readable from the front
+    if (Alive(g_tagText.get())) G.graphicSetColor[g_tagText.get()](T().title);
+}
+
 // ---- callbacks ---------------------------------------------------------------
 
 static void OnRoomChange() {
@@ -1836,6 +1869,9 @@ static void OnRoomChange() {
     g_penDrawing = false;
     PauseTrackers(false);
     g_dancing = false;
+    Kill(g_tagGo);
+    g_tagText.clear();
+    g_tagShown = false;
     g_laHave = false;
     g_voiceOn = false;
     g_recorder.clear();
@@ -1892,6 +1928,7 @@ static void OnUpdate(float dt) {
     NoclipTick(in);
     TeleportGunTick(in);
     PenTick(in);
+    TagTick();
     VoiceTick();
     try { SpawnOnHandTick(in); ItemQueueTick(); }
     catch (...) { g_itemQueue.clear(); ym::log("starter-menu: item code error"); }
