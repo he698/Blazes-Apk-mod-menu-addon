@@ -1564,14 +1564,20 @@ static bool g_voiceOn = false;
 static int g_voicePrevSource = 0;
 static double g_voiceUntil = 0;
 
+static const char *g_voiceWhy = "";                 // why voice chat could not start (shown to you)
 static Il2CppObject *FindRecorder() {
     if (Alive(g_recorder.get())) return g_recorder.get();
-    if (!G.tRecorder || !(G.findScene.IsValid() || G.findSceneByType.IsValid())) return nullptr;
-    auto *arr = (uint8_t *)(G.findScene.IsValid() ? G.findScene((Il2CppObject *)G.tRecorder)
-                                                  : G.findSceneByType((Il2CppObject *)G.tRecorder, 0));
-    if (!arr || *(uintptr_t *)(arr + 0x18) == 0) return nullptr;
-    g_recorder.set(((Il2CppObject **)(arr + 0x20))[0]);
-    return g_recorder.get();
+    if (!G.tRecorder) return nullptr;
+    auto grab = [](uint8_t *arr) -> bool {
+        if (!arr || *(uintptr_t *)(arr + 0x18) == 0) return false;
+        g_recorder.set(((Il2CppObject **)(arr + 0x20))[0]);
+        return true;
+    };
+    if (G.findScene.IsValid() && grab((uint8_t *)G.findScene((Il2CppObject *)G.tRecorder))) return g_recorder.get();
+    if (G.findSceneByType.IsValid() && grab((uint8_t *)G.findSceneByType((Il2CppObject *)G.tRecorder, 0))) return g_recorder.get();
+    // Last try: Resources.FindObjectsOfTypeAll also finds recorders on inactive objects.
+    if (G.findAll.IsValid() && grab((uint8_t *)G.findAll((Il2CppObject *)G.tRecorder))) return g_recorder.get();
+    return nullptr;
 }
 static void VoiceStop() {
     if (!g_voiceOn) return;
@@ -1584,16 +1590,18 @@ static void VoiceStop() {
     } catch (...) { ym::log("starter-menu: voice restore error"); }
 }
 static bool VoiceStart(Il2CppObject *clip, double seconds) {
-    if (!G.recSetSource.IsValid() || !G.recSetClip.IsValid() || !G.recRestart.IsValid()) return false;
+    g_voiceWhy = "";
+    if (!G.tRecorder) { g_voiceWhy = "no Recorder class"; return false; }
+    if (!G.recSetSource.IsValid() || !G.recSetClip.IsValid() || !G.recRestart.IsValid()) { g_voiceWhy = "recorder methods missing"; return false; }
     Il2CppObject *rec = FindRecorder();
-    if (!rec) return false;
+    if (!rec) { g_voiceWhy = "recorder not in scene"; return false; }
     try {
         if (!g_voiceOn) g_voicePrevSource = G.recGetSource.IsValid() ? G.recGetSource[rec]() : 0;
         G.recSetClip[rec](clip);
         if (G.recSetLoop.IsValid()) G.recSetLoop[rec](false);
         G.recSetSource[rec](1);                      // InputSourceType.AudioClip
         G.recRestart[rec](true);
-    } catch (...) { ym::log("starter-menu: voice start error"); g_voiceOn = true; VoiceStop(); return false; }
+    } catch (...) { ym::log("starter-menu: voice start error"); g_voiceWhy = "recorder error"; g_voiceOn = true; VoiceStop(); return false; }
     g_voiceOn = true;
     g_voiceUntil = g_time + seconds + 0.3;
     return true;
@@ -1703,8 +1711,11 @@ static void PlaySoundIdx(int idx) {
     G.srcPlay[src]();
     double seconds = (double)frames / rate;
     g_soundUntil = g_time + std::max(1.0, seconds);      // one press = one play, 1 s at least
-    if (VoiceStart(clip, seconds)) Notify("Playing %s in voice chat", g_soundFiles[idx].c_str());
-    else Notify("Playing %s (voice chat not found, only you hear it)", g_soundFiles[idx].c_str());
+    if (VoiceStart(clip, seconds)) Notify("Playing in voice chat");
+    else {
+        ym::log("starter-menu: voice chat not used: %s", g_voiceWhy);
+        Notify("Only you hear it: %s", g_voiceWhy);
+    }
 }
 
 static void ScanSounds() {
