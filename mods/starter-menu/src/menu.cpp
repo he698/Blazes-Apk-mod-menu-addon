@@ -379,6 +379,7 @@ static void Notify(const char *fmt, ...);
 static void SaveSpot();
 static void GoToSpot();
 static void NextTheme();
+static void NextMenuSize();
 static void AllOff();
 static void PointerToHand();
 static void NextPointer();
@@ -473,6 +474,7 @@ static Item g_items[] = {
     {SETTINGS, "Car Speed", ACTION, MAIN, nullptr, NextCarSpeed},
     {SETTINGS, "Right Hand Menu", TOGGLE, MAIN, &f_rightHand, PointerToHand},
     {SETTINGS, "Change Menu Theme", ACTION, MAIN, nullptr, NextTheme},
+    {SETTINGS, "Menu Size", ACTION, MAIN, nullptr, NextMenuSize},
     {SETTINGS, "Rainbow Menu", TOGGLE, MAIN, &f_rainbow},
     {SETTINGS, "Show FPS", TOGGLE, MAIN, &f_fps},
     {SETTINGS, "Show Clock", TOGGLE, MAIN, &f_clock},
@@ -509,6 +511,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Save Spot", "Remembers where you are."},
     {"Go To Spot", "Teleports you to your saved spot."},
     {"Change Menu Theme", "Blaze, Orange, Blue, Green, Purple, Dark."},
+    {"Menu Size", "Small, normal, large or huge menu."},
     {"Rainbow Menu", "The menu cycles through colors."},
     {"Show FPS", "Frames per second in the title."},
     {"Show Clock", "The time in the title."},
@@ -567,6 +570,10 @@ static const Theme kThemes[] = {
 };
 static constexpr int kThemeCount = sizeof(kThemes) / sizeof(kThemes[0]);
 static int g_theme = 0;
+static const float kMenuSizes[] = {0.7f, 1.0f, 1.3f, 1.6f};
+static const char *kMenuSizeNames[] = {"small", "normal", "large", "huge"};
+static int g_menuSize = 1;
+static float g_menuScale = 1.0f;
 static const Theme &T() { return kThemes[g_theme]; }
 
 // ---- menu objects ----------------------------------------------------------------
@@ -904,7 +911,7 @@ static void AnimateMenu() {
     float open = (float)(g_time - g_openTime) / 0.15f;     // pop open like ii's menu
     if (open <= 1.05f && Alive(g_menu.get())) {
         float k = open >= 1 ? 1 : 1 - (1 - open) * (1 - open);
-        G.trSetLocalScale[Tr(g_menu.get())](Vector3(k, k, k));
+        G.trSetLocalScale[Tr(g_menu.get())](Vector3(k * g_menuScale, k * g_menuScale, k * g_menuScale));
     }
     if (g_flashRow != -2 && g_time >= g_flashUntil) { g_flashRow = -2; g_dirty = true; }
     float t = 0.5f + 0.5f * sinf((float)g_time * 2.0f);
@@ -964,6 +971,13 @@ static void GoToSpot() {
 static const float kIronSpeeds[] = {15, 12, 8, 4};
 static int g_ironSpeed = 0;
 static void NextIronSpeed() { g_ironSpeed = (g_ironSpeed + 1) % 4; Notify("Iron Man speed: %d", (int)kIronSpeeds[g_ironSpeed]); }
+static void NextMenuSize() {
+    g_menuSize = (g_menuSize + 1) % 4;
+    g_menuScale = kMenuSizes[g_menuSize];
+    if (Alive(g_menu.get()))
+        G.trSetLocalScale[Tr(g_menu.get())](Vector3(g_menuScale, g_menuScale, g_menuScale));
+    Notify("Menu size: %s", kMenuSizeNames[g_menuSize]);
+}
 static void NextTheme() { g_theme = (g_theme + 1) % kThemeCount; Notify("Theme: %s", T().name); }
 static void AllOff() {
     for (auto &it : g_items) if (it.kind == TOGGLE && it.flag != &f_notify) *it.flag = false;   // ticks undo each mod
@@ -1884,7 +1898,7 @@ static void OnRoomChange() {
     g_dancing = false;
     Kill(g_tagGo);
     g_tagText.clear();
-    g_tagShown = false;
+    g_tagShown = true;
     g_laHave = false;
     g_voiceOn = false;
     g_recorder.clear();
