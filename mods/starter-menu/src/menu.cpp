@@ -481,9 +481,9 @@ static Item g_items[] = {
     {SETTINGS, "Turn Everything Off", ACTION, MAIN, nullptr, AllOff},
 
     {CREDITS, "Exit Credits", OPEN, MAIN},
-    {CREDITS, "NOVA X", ACTION},
+    {CREDITS, "NOVA2XP", ACTION},
     {CREDITS, "Creator: @RandomGuy", ACTION},
-    {CREDITS, "Contributors: Community", ACTION},
+    {CREDITS, "Music", ACTION},
 
     {OP, "Exit OP", OPEN, MAIN},
     {OP, "Outline Colour (preview)", ACTION, MAIN, nullptr, NextOutlineColor},
