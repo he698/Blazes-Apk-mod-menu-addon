@@ -443,6 +443,7 @@ static Item g_items[] = {
 
     {SOUNDS, "Exit Soundboard", OPEN, MAIN},
     {SOUNDS, "Refresh Sounds", ACTION, MAIN, nullptr, ScanSounds},
+    {SOUNDS, "Stop Sound", ACTION, MAIN, nullptr, StopSound},
     {SOUNDS, "Find Sound Messages", ACTION, MAIN, nullptr, FindSoundMessages},
 
     {PEN, "Exit Pen", OPEN, MAIN},
@@ -526,6 +527,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Soundboard", "Your imported .wav sounds. One at a time. Add files, then Refresh Sounds."},
     {"Find Sound Messages", "Writes the game's sound messages to the log."},
     {"Refresh Sounds", "Looks for .wav files again."},
+    {"Stop Sound", "Stops the sound now. Sounds stay locked until it would have ended."},
 
     {"NOVA X", "Menu credits."},
     {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
@@ -1595,6 +1597,7 @@ static bool LoadWav(const std::string &path, std::vector<float> &out, int &ch, i
 
 static void StopSound() {
     if (Alive(g_audioSrc.get()) && G.srcStop.IsValid()) G.srcStop[g_audioSrc.get()]();
+    // g_soundUntil is left alone on purpose: stopping does not unlock the buttons early.
 }
 
 static double g_soundUntil = 0;                        // buttons stay locked until the sound is over
