@@ -367,6 +367,7 @@ static constexpr int kDances = 8;
 static bool g_danceSel[kDances];
 static bool f_longArms = false;
 static bool f_pen = false;
+static bool f_novaTag = false;
 static int g_dance = -1;            // the picked dance, -1 = none
 static bool f_fly, f_fastFly, f_platforms, f_lowGravity, f_rainbow, f_fps, f_clock, f_rightHand,
             f_notify = true;
@@ -391,15 +392,14 @@ static void ArmDupe27();
 static void FindSoundMessages();
 static void NextPenColor();
 static void NextPenSize();
-static void NextOutlineColor();
 static void UndoStroke();
 static void ClearDrawing();
 static void ScanSounds();
 static void StopSound();
 static bool LeftHandItem();
 
-enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, PEN, OP, NCAT };
-static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits", "Soundboard", "Pen", "OP"};
+enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, PEN, NCAT };
+static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits", "Soundboard", "Pen"};
 enum Kind { OPEN, TOGGLE, ACTION };
 struct Item {
     Cat cat;
@@ -421,7 +421,6 @@ static Item g_items[] = {
     {MAIN, "Pen", OPEN, PEN},
     {MAIN, "Enabled Mods", OPEN, ENABLED},
     {MAIN, "Credits", OPEN, CREDITS},
-    {MAIN, "OP", OPEN, OP},
 
     {MOVEMENT, "Exit Movement Mods", OPEN, MAIN},
     {MOVEMENT, "Platforms", TOGGLE, MAIN, &f_platforms},
@@ -443,7 +442,7 @@ static Item g_items[] = {
     {RIG, "Wave", TOGGLE, MAIN, &g_danceSel[0], DancePicked},
     {RIG, "Helicopter", TOGGLE, MAIN, &g_danceSel[1], DancePicked},
     {RIG, "T-Pose", TOGGLE, MAIN, &g_danceSel[2], DancePicked},
-    {RIG, "Walk", TOGGLE, MAIN, &g_danceSel[3], DancePicked},
+    {RIG, "Windmill", TOGGLE, MAIN, &g_danceSel[3], DancePicked},
     {RIG, "Swim", TOGGLE, MAIN, &g_danceSel[4], DancePicked},
     {RIG, "Jumping Jacks", TOGGLE, MAIN, &g_danceSel[5], DancePicked},
     {RIG, "Spaz", TOGGLE, MAIN, &g_danceSel[6], DancePicked},
@@ -478,15 +477,13 @@ static Item g_items[] = {
     {SETTINGS, "Show FPS", TOGGLE, MAIN, &f_fps},
     {SETTINGS, "Show Clock", TOGGLE, MAIN, &f_clock},
     {SETTINGS, "Notifications", TOGGLE, MAIN, &f_notify},
+    {SETTINGS, "Nova X Tag", TOGGLE, MAIN, &f_novaTag},
     {SETTINGS, "Turn Everything Off", ACTION, MAIN, nullptr, AllOff},
 
     {CREDITS, "Exit Credits", OPEN, MAIN},
-    {CREDITS, "NOVA2XP", ACTION},
+    {CREDITS, "NOVA X", ACTION},
     {CREDITS, "Creator: @RandomGuy", ACTION},
-    {CREDITS, "Music", ACTION},
-
-    {OP, "Exit OP", OPEN, MAIN},
-    {OP, "Outline Colour (preview)", ACTION, MAIN, nullptr, NextOutlineColor},
+    {CREDITS, "Contributors: Community", ACTION},
 };
 static constexpr int kItems = sizeof(g_items) / sizeof(g_items[0]);
 static Item g_returnItem = {ENABLED, "Exit Enabled Mods", OPEN, MAIN};
@@ -524,7 +521,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Wave", "Waves one hand, the other on your hip. Hold left trigger."},
     {"Helicopter", "Both arms spin around you. Hold left trigger."},
     {"T-Pose", "The classic T-pose. Hold left trigger."},
-    {"Walk", "Arms spin like a Walking. Hold left trigger."},
+    {"Windmill", "Arms spin like a windmill. Hold left trigger."},
     {"Swim", "Swims through the air. Hold left trigger."},
     {"Jumping Jacks", "Arms go up and down at your sides. Hold left trigger."},
     {"Spaz", "Hands shake all over the place. Hold left trigger."},
@@ -533,6 +530,7 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Iron Man Speed", "Changes how strong Iron Man is."},
     {"Right Hand Menu", "Hold B, menu on your right hand."},
     {"Notifications", "Messages when you switch something."},
+    {"Nova X Tag", "A 'Nova X User' tag above your head. Only you see it, in a mirror or camera."},
     {"Turn Everything Off", "Switches every mod off."},
     {"Long Arms (1.5x)", "Extends both arms to 1.5x reach while enabled."},
     {"Credits", "Shows the people behind Nova X."},
@@ -547,8 +545,9 @@ static const struct { const char *label, *tip; } kTips[] = {
     {"Refresh Sounds", "Looks for .wav files again."},
     {"Stop Sound", "Stops the sound now. Sounds stay locked until it would have ended."},
 
-    {"NOVA2XP", "Menu Idea."},
-    {"@RandomGuy", "The menu is made by @RandomGuy."},
+    {"NOVA X", "Menu credits."},
+    {"Creator: @RandomGuy", "The menu is made by @RandomGuy."},
+    {"Contributors: Community", "Thanks to the community for its support."},
 };
 static const char *TipFor(const char *label) {
     if (strncmp(label, "Exit ", 5) == 0) return "Returns you back to the main category.";
@@ -754,6 +753,19 @@ static void RenderPage() {
         SetColor(g_rowCube[r].get(), r == g_flashRow ? Color(1, 0.9f, 0.6f, 1) : on ? T().buttonOn : T().button);
         if (Alive(g_rowText[r].get())) G.graphicSetColor[g_rowText[r].get()](on ? Color(1, 1, 1, 1) : T().title);
     }
+    bool pages = PageCount() > 1;
+    Show(g_prev, pages);
+    Show(g_next, pages);
+    SetColor(g_prev.get(), T().button);
+    SetColor(g_next.get(), T().button);
+    SetColor(g_outline.get(), T().title);
+    SetColor(g_titleBar.get(), T().buttonOn);
+    SetColor(g_pointer.get(), T().bgB);
+    if (Alive(g_title.get())) G.graphicSetColor[g_title.get()](Color(1, 1, 1, 1));
+    g_nextTitle = 0;                     // refresh the title now
+    g_dirty = false;
+}
+
 static int Hex(float v) { return (int)(v < 0 ? 0 : v > 1 ? 255 : v * 255); }
 
 // The title is "Nova X" with a moving red-orange-yellow gradient, one color per letter
@@ -953,23 +965,6 @@ static const float kIronSpeeds[] = {15, 12, 8, 4};
 static int g_ironSpeed = 0;
 static void NextIronSpeed() { g_ironSpeed = (g_ironSpeed + 1) % 4; Notify("Iron Man speed: %d", (int)kIronSpeeds[g_ironSpeed]); }
 static void NextTheme() { g_theme = (g_theme + 1) % kThemeCount; Notify("Theme: %s", T().name); }
-
-// OP-page outline palette. This previews the selected colour on the menu frame;
-// it is kept separate from the menu theme for consistent preview/renderer colouring.
-static const Color kOutlinePalette[] = {
-    Color(1, 0.1f, 0.1f, 1), Color(0.1f, 0.45f, 1, 1),
-    Color(0.1f, 1, 0.25f, 1), Color(0.75f, 0.2f, 1, 1),
-    Color(1, 0.85f, 0.1f, 1), Color(1, 1, 1, 1)
-};
-static constexpr int kOutlinePaletteCount = sizeof(kOutlinePalette) / sizeof(kOutlinePalette[0]);
-static int g_outlineColorIndex = 0;
-static Color OutlineColor() { return kOutlinePalette[g_outlineColorIndex]; }
-static void NextOutlineColor() {
-    g_outlineColorIndex = (g_outlineColorIndex + 1) % kOutlinePaletteCount;
-    if (Alive(g_outline.get())) SetColor(g_outline.get(), OutlineColor());
-    static const char *names[] = {"Red", "Blue", "Green", "Purple", "Yellow", "White"};
-    Notify("Outline colour: %s", names[g_outlineColorIndex]);
-}
 static void AllOff() {
     for (auto &it : g_items) if (it.kind == TOGGLE && it.flag != &f_notify) *it.flag = false;   // ticks undo each mod
     g_dance = -1;
@@ -1829,6 +1824,36 @@ static void PenTick(const Buttons &in) {
     if (st.n >= kMaxPoints) { g_penDrawing = false; g_penLocked = true; }   // long line done: release and press again
 }
 
+// ---- Nova X tag (local only) -------------------------------------------------------
+// A "Nova X User" tag floating above your own head. It is made on your device only, so
+// nobody else sees it. It turns to face whoever is in front of you.
+static Ref g_tagGo, g_tagText;
+static bool g_tagShown = false;
+static void TagTick() {
+    Il2CppObject *head = g_head.get();
+    if (!f_novaTag || !head) {
+        if (g_tagShown) { Show(g_tagGo, false); g_tagShown = false; }
+        return;
+    }
+    if (!Alive(g_tagGo.get())) {                       // made once per room
+        if (!G.font.get()) return;
+        Il2CppObject *c = Canvas(head, Vector3(0, 0.3f, 0), 0.4f, 0.08f);
+        if (!c) return;
+        Label(Tr(c), "Nova X User", Vector3(0, 0, 0), 0.4f, 0.08f, 40, &g_tagText);
+        if (Alive(g_tagText.get())) G.graphicSetColor[g_tagText.get()](T().title);
+        g_tagGo.set(c);
+        g_tagShown = true;
+    } else if (!g_tagShown) {
+        Show(g_tagGo, true);
+        g_tagShown = true;
+    }
+    Il2CppObject *t = Tr(g_tagGo.get());
+    Vector3 f = Flat(G.trGetForward[head]());
+    G.trSetPosition[t](G.trGetPosition[head]() + Vector3(0, 0.3f, 0));
+    G.trSetRotation[t](Quaternion::LookRotation(f * -1.0f));      // readable from the front
+    if (Alive(g_tagText.get())) G.graphicSetColor[g_tagText.get()](T().title);
+}
+
 // ---- callbacks ---------------------------------------------------------------
 
 static void OnRoomChange() {
@@ -1844,6 +1869,9 @@ static void OnRoomChange() {
     g_penDrawing = false;
     PauseTrackers(false);
     g_dancing = false;
+    Kill(g_tagGo);
+    g_tagText.clear();
+    g_tagShown = false;
     g_laHave = false;
     g_voiceOn = false;
     g_recorder.clear();
@@ -1900,6 +1928,7 @@ static void OnUpdate(float dt) {
     NoclipTick(in);
     TeleportGunTick(in);
     PenTick(in);
+    TagTick();
     VoiceTick();
     try { SpawnOnHandTick(in); ItemQueueTick(); }
     catch (...) { g_itemQueue.clear(); ym::log("starter-menu: item code error"); }
