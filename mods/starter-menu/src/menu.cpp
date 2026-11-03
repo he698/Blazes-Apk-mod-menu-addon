@@ -110,7 +110,9 @@ static struct {
     Method<Il2CppObject *> clipCreate;
     Method<bool> clipSetData;
     Method<void> srcSetClip, srcSetVolume, srcSetSpatial, srcPlay, srcStop;
-    BNM::MonoType *tAudioSource = nullptr;
+    BNM::MonoType *tAudioSource = nullptr, *tRecorder = nullptr;
+    Method<void> recSetSource, recSetClip, recSetLoop, recRestart;
+    Method<int> recGetSource;
     BNM::IL2CPP::Il2CppClass *floatClass = nullptr;
     BNM::MonoType *tRigidbody = nullptr, *tCollider = nullptr, *tCanvas = nullptr, *tText = nullptr,
                   *tFont = nullptr, *tRenderer = nullptr, *tMeshCollider = nullptr, *tLine = nullptr;
@@ -253,6 +255,17 @@ static bool Lookups() {
         G.srcStop = src.GetMethod("Stop", 0);
         G.tAudioSource = src.IsValid() ? src.GetMonoType() : nullptr;
         G.floatClass = Class("System", "Single").GetClass();
+        Class rec("Photon.Voice.Unity", "Recorder");        // the game's voice chat microphone
+        if (rec.IsValid()) {
+            G.tRecorder = rec.GetMonoType();
+            G.recSetSource = rec.GetMethod("set_SourceType", 1);
+            G.recGetSource = rec.GetMethod("get_SourceType", 0);
+            G.recSetClip = rec.GetMethod("set_AudioClip", 1);
+            G.recSetLoop = rec.GetMethod("set_LoopAudioClip", 1);
+            G.recRestart = rec.GetMethod("RestartRecording", 1);
+        }
+        ym::log("starter-menu: voice recorder=%d source=%d clip=%d restart=%d", rec.IsValid(), G.recSetSource.IsValid(),
+                G.recSetClip.IsValid(), G.recRestart.IsValid());
         ym::log("starter-menu: audio create=%d setdata=%d play=%d", G.clipCreate.IsValid(), G.clipSetData.IsValid(), G.srcPlay.IsValid());
     }
     Class behaviour("UnityEngine", "Behaviour");
@@ -1539,6 +1552,53 @@ static std::vector<std::string> g_soundFiles;
 static std::string g_soundDir;
 static Ref g_audioGo, g_audioSrc, g_clip;
 
+// Voice chat: the game's voice recorder is pointed at the clip instead of the microphone
+// while the sound plays, so everyone who hears your voice hears the sound. It goes back to
+// the microphone when the sound is over (or you press Stop Sound). Your own voice is not
+// sent while the sound plays.
+static Ref g_recorder;
+static bool g_voiceOn = false;
+static int g_voicePrevSource = 0;
+static double g_voiceUntil = 0;
+
+static Il2CppObject *FindRecorder() {
+    if (Alive(g_recorder.get())) return g_recorder.get();
+    if (!G.tRecorder || !(G.findScene.IsValid() || G.findSceneByType.IsValid())) return nullptr;
+    auto *arr = (uint8_t *)(G.findScene.IsValid() ? G.findScene((Il2CppObject *)G.tRecorder)
+                                                  : G.findSceneByType((Il2CppObject *)G.tRecorder, 0));
+    if (!arr || *(uintptr_t *)(arr + 0x18) == 0) return nullptr;
+    g_recorder.set(((Il2CppObject **)(arr + 0x20))[0]);
+    return g_recorder.get();
+}
+static void VoiceStop() {
+    if (!g_voiceOn) return;
+    g_voiceOn = false;
+    Il2CppObject *rec = g_recorder.get();
+    if (!Alive(rec)) return;
+    try {
+        G.recSetSource[rec](g_voicePrevSource);
+        G.recRestart[rec](true);
+    } catch (...) { ym::log("starter-menu: voice restore error"); }
+}
+static bool VoiceStart(Il2CppObject *clip, double seconds) {
+    if (!G.recSetSource.IsValid() || !G.recSetClip.IsValid() || !G.recRestart.IsValid()) return false;
+    Il2CppObject *rec = FindRecorder();
+    if (!rec) return false;
+    try {
+        if (!g_voiceOn) g_voicePrevSource = G.recGetSource.IsValid() ? G.recGetSource[rec]() : 0;
+        G.recSetClip[rec](clip);
+        if (G.recSetLoop.IsValid()) G.recSetLoop[rec](false);
+        G.recSetSource[rec](1);                      // InputSourceType.AudioClip
+        G.recRestart[rec](true);
+    } catch (...) { ym::log("starter-menu: voice start error"); g_voiceOn = true; VoiceStop(); return false; }
+    g_voiceOn = true;
+    g_voiceUntil = g_time + seconds + 0.3;
+    return true;
+}
+static void VoiceTick() {
+    if (g_voiceOn && g_time >= g_voiceUntil) VoiceStop();
+}
+
 static std::string SoundDir() {
     // The Sounds folder inside the mods folder: the player drops their .wav files there.
     if (g_soundDir.empty()) {
@@ -1597,6 +1657,7 @@ static bool LoadWav(const std::string &path, std::vector<float> &out, int &ch, i
 
 static void StopSound() {
     if (Alive(g_audioSrc.get()) && G.srcStop.IsValid()) G.srcStop[g_audioSrc.get()]();
+    VoiceStop();
     // g_soundUntil is left alone on purpose: stopping does not unlock the buttons early.
 }
 
@@ -1635,8 +1696,10 @@ static void PlaySoundIdx(int idx) {
     if (G.srcSetVolume.IsValid()) G.srcSetVolume[src](1.0f);
     if (G.srcSetSpatial.IsValid()) G.srcSetSpatial[src](0.0f);     // 2D: same volume wherever you are
     G.srcPlay[src]();
-    g_soundUntil = g_time + std::max(1.0, (double)frames / rate);   // one press = one play, 1 s at least
-    Notify("Playing %s", g_soundFiles[idx].c_str());
+    double seconds = (double)frames / rate;
+    g_soundUntil = g_time + std::max(1.0, seconds);      // one press = one play, 1 s at least
+    if (VoiceStart(clip, seconds)) Notify("Playing %s in voice chat", g_soundFiles[idx].c_str());
+    else Notify("Playing %s (voice chat not found, only you hear it)", g_soundFiles[idx].c_str());
 }
 
 static void ScanSounds() {
@@ -1774,6 +1837,8 @@ static void OnRoomChange() {
     PauseTrackers(false);
     g_dancing = false;
     g_laHave = false;
+    g_voiceOn = false;
+    g_recorder.clear();
     g_gunLine.clear();
     if (g_noclipOn && g_player.get()) {           // leaving the room mid-noclip: put things back
         Buttons none;                             // trigger "released"
@@ -1827,6 +1892,7 @@ static void OnUpdate(float dt) {
     NoclipTick(in);
     TeleportGunTick(in);
     PenTick(in);
+    VoiceTick();
     try { SpawnOnHandTick(in); ItemQueueTick(); }
     catch (...) { g_itemQueue.clear(); ym::log("starter-menu: item code error"); }
     DanceTick(in, dt);              // last: it moves your hands after everything else
