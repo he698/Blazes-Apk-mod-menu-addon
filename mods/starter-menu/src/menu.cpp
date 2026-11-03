@@ -391,14 +391,15 @@ static void ArmDupe27();
 static void FindSoundMessages();
 static void NextPenColor();
 static void NextPenSize();
+static void NextOutlineColor();
 static void UndoStroke();
 static void ClearDrawing();
 static void ScanSounds();
 static void StopSound();
 static bool LeftHandItem();
 
-enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, PEN, NCAT };
-static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits", "Soundboard", "Pen"};
+enum Cat { MAIN, MOVEMENT, RIG, ITEMS, SETTINGS, ENABLED, CREDITS, SOUNDS, PEN, OP, NCAT };
+static const char *kCatName[NCAT] = {"Main", "Movement Mods", "Rig Mods", "Items", "Settings", "Enabled Mods", "Credits", "Soundboard", "Pen", "OP"};
 enum Kind { OPEN, TOGGLE, ACTION };
 struct Item {
     Cat cat;
@@ -420,6 +421,7 @@ static Item g_items[] = {
     {MAIN, "Pen", OPEN, PEN},
     {MAIN, "Enabled Mods", OPEN, ENABLED},
     {MAIN, "Credits", OPEN, CREDITS},
+    {MAIN, "OP", OPEN, OP},
 
     {MOVEMENT, "Exit Movement Mods", OPEN, MAIN},
     {MOVEMENT, "Platforms", TOGGLE, MAIN, &f_platforms},
@@ -482,6 +484,9 @@ static Item g_items[] = {
     {CREDITS, "NOVA X", ACTION},
     {CREDITS, "Creator: @RandomGuy", ACTION},
     {CREDITS, "Contributors: Community", ACTION},
+
+    {OP, "Exit OP", OPEN, MAIN},
+    {OP, "Outline Colour (preview)", ACTION, MAIN, nullptr, NextOutlineColor},
 };
 static constexpr int kItems = sizeof(g_items) / sizeof(g_items[0]);
 static Item g_returnItem = {ENABLED, "Exit Enabled Mods", OPEN, MAIN};
@@ -754,7 +759,7 @@ static void RenderPage() {
     Show(g_next, pages);
     SetColor(g_prev.get(), T().button);
     SetColor(g_next.get(), T().button);
-    SetColor(g_outline.get(), T().title);
+    SetColor(g_outline.get(), OutlineColor());
     SetColor(g_titleBar.get(), T().buttonOn);
     SetColor(g_pointer.get(), T().bgB);
     if (Alive(g_title.get())) G.graphicSetColor[g_title.get()](Color(1, 1, 1, 1));
@@ -961,6 +966,23 @@ static const float kIronSpeeds[] = {15, 12, 8, 4};
 static int g_ironSpeed = 0;
 static void NextIronSpeed() { g_ironSpeed = (g_ironSpeed + 1) % 4; Notify("Iron Man speed: %d", (int)kIronSpeeds[g_ironSpeed]); }
 static void NextTheme() { g_theme = (g_theme + 1) % kThemeCount; Notify("Theme: %s", T().name); }
+
+// OP-page outline palette. This previews the selected colour on the menu frame;
+// it is kept separate from the menu theme for consistent preview/renderer colouring.
+static const Color kOutlinePalette[] = {
+    Color(1, 0.1f, 0.1f, 1), Color(0.1f, 0.45f, 1, 1),
+    Color(0.1f, 1, 0.25f, 1), Color(0.75f, 0.2f, 1, 1),
+    Color(1, 0.85f, 0.1f, 1), Color(1, 1, 1, 1)
+};
+static constexpr int kOutlinePaletteCount = sizeof(kOutlinePalette) / sizeof(kOutlinePalette[0]);
+static int g_outlineColorIndex = 0;
+static Color OutlineColor() { return kOutlinePalette[g_outlineColorIndex]; }
+static void NextOutlineColor() {
+    g_outlineColorIndex = (g_outlineColorIndex + 1) % kOutlinePaletteCount;
+    if (Alive(g_outline.get())) SetColor(g_outline.get(), OutlineColor());
+    static const char *names[] = {"Red", "Blue", "Green", "Purple", "Yellow", "White"};
+    Notify("Outline colour: %s", names[g_outlineColorIndex]);
+}
 static void AllOff() {
     for (auto &it : g_items) if (it.kind == TOGGLE && it.flag != &f_notify) *it.flag = false;   // ticks undo each mod
     g_dance = -1;
